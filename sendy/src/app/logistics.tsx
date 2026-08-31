@@ -106,9 +106,31 @@ export default function Logistics() {
         <Text className="text-ink text-[22px] font-display leading-[28px]">
           Send a parcel{'\n'}across Nigeria
         </Text>
-        <Text className="text-body text-[15px] mt-2 mb-6 leading-[22px]">
+        <Text className="text-body text-[15px] mt-2 mb-4 leading-[22px]">
           Pick the route first — it sets the price and how long it takes.
         </Text>
+
+        {/*
+          The mirror of the banner on Packages, and it earns its place now that
+          Packages is the only way in here — someone who arrives, realises they
+          meant same-city, and finds no way across would have to go back to Home
+          and start again. `replace` rather than `push` for the same reason it
+          is used there: this is switching flows, not stacking one on the other.
+        */}
+        <Pressable
+          onPress={() => router.replace('/package')}
+          accessibilityRole="button"
+          className="flex-row items-center bg-surface rounded-md p-3.5 mb-6"
+        >
+          <Ionicons name="cube-outline" size={18} color={colors.pink[600]} />
+          <View className="flex-1 ml-2.5">
+            <Text className="text-ink text-[13px] font-semibold">Between states</Text>
+            <Text className="text-body text-[12px] mt-0.5 leading-[17px]">
+              Staying in one city? Send a package instead — it costs less and arrives today.
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={colors.muted} />
+        </Pressable>
 
         {/* route — the decision everything else depends on */}
         <Card className="p-4 mb-4">

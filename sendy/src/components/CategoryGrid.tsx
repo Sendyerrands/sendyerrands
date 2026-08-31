@@ -6,8 +6,12 @@ import { CATEGORIES, type Category } from '@/lib/mock';
 import { colors } from '@/lib/theme';
 
 /**
- * 4-across pillar grid (design.md §9). Marketplace carries the `New` ribbon
- * because Vendor Marketplace V1 is the Phase-1 differentiator (§11).
+ * 3-across pillar grid. Marketplace carries the `New` ribbon because Vendor
+ * Marketplace V1 is the Phase-1 differentiator (design.md §11).
+ *
+ * Three rather than the original four: with Logistics moved inside Packages
+ * and Pharmacy gone, six tiles across four columns left an orphaned row of
+ * two. Three gives two full rows and a larger tap target.
  */
 export function CategoryGrid() {
   const router = useRouter();
@@ -47,7 +51,7 @@ function CategoryTile({ category, onPress }: { category: Category; onPress?: () 
       // the status, which is otherwise only visible as colour.
       accessibilityRole={soon ? 'text' : 'button'}
       accessibilityLabel={soon ? `${category.label} — coming soon` : category.label}
-      className="w-1/4 items-center mb-4 px-1"
+      className="w-1/3 items-center mb-4 px-1.5"
     >
       <View
         className="w-full aspect-square rounded-xl items-center justify-center relative overflow-hidden"
@@ -57,7 +61,9 @@ function CategoryTile({ category, onPress }: { category: Category; onPress?: () 
             : (CATEGORY_PALETTE[category.slug] ?? CATEGORY_PALETTE.packages!).tint,
         }}
       >
-        <CategoryIcon slug={category.slug} size={30} muted={soon} />
+        {/* Scaled with the tile — at three across each square is roughly a
+            third wider than it was, and a 30px glyph read as lost in it. */}
+        <CategoryIcon slug={category.slug} size={36} muted={soon} />
         {category.badge && !soon ? (
           <View className="absolute top-0 right-0 bg-savings px-1.5 py-0.5 rounded-bl-md">
             <Text className="text-white text-[9px] font-bold tracking-wide">{category.badge}</Text>
@@ -72,8 +78,8 @@ function CategoryTile({ category, onPress }: { category: Category; onPress?: () 
       </Text>
       {/* For a coming-soon tile this is what stops grey reading as "broken" —
           without it the tile is just a dimmer version of the working ones.
-          Elsewhere it separates the two parcel tiles, which are otherwise the
-          same picture of a box. */}
+          `caption` stays supported for any tile that needs disambiguating; no
+          tile currently does, since Logistics moved inside Packages. */}
       {soon || category.caption ? (
         <Text className="text-muted text-[10px] text-center mt-0.5" numberOfLines={1}>
           {soon ? 'Coming soon' : category.caption}

@@ -702,16 +702,26 @@ export type Category = {
 
 export const CATEGORIES: Category[] = [
   { slug: 'errands', label: 'Errands', icon: 'receipt-outline', href: '/errand' },
-  { slug: 'logistics', label: 'Logistics', icon: 'trail-sign-outline', href: '/logistics', caption: 'Between states' },
   { slug: 'marketplace', label: 'Marketplace', icon: 'storefront-outline', badge: 'NEW', href: '/marketplace' },
   { slug: 'shops', label: 'Shops', icon: 'bag-handle-outline' },
-  { slug: 'pharmacy', label: 'Pharmacy', icon: 'medkit-outline' },
   { slug: 'markets', label: 'Markets', icon: 'cart-outline' },
-  // No route on purpose. Bills had a chevron and a category page with nothing
-  // behind it; a tile that opens an empty screen is worse than one that says
-  // it is not ready.
+  /**
+   * Logistics is deliberately not a pillar here. Interstate is a different
+   * enough product — different pricing, different timescale — that giving it
+   * equal billing on the home grid invited people into the wrong flow. It is
+   * reached from inside Packages instead, where someone is already thinking
+   * about a parcel and the banner can explain the difference in one line.
+   * The /logistics route still exists and still works; only the tile is gone.
+   */
+  { slug: 'packages', label: 'Packages', icon: 'cube-outline', href: '/package' },
+  /**
+   * Last on purpose, and no route on purpose. Bills had a chevron and a
+   * category page with nothing behind it; a tile that opens an empty screen is
+   * worse than one that says it is not ready. Keeping the only inert tile at
+   * the end means the grid reads as five things that work rather than drawing
+   * the eye to the one that does not.
+   */
   { slug: 'bills', label: 'Bills', icon: 'reader-outline', comingSoon: true },
-  { slug: 'packages', label: 'Packages', icon: 'cube-outline', href: '/package', caption: 'Same city' },
 ];
 
 export const RECENT_SEARCHES = ['Jollof rice', 'iPhone charger', 'Pharmacy near me', 'Dangote rice'];
