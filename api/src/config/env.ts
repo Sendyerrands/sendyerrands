@@ -34,6 +34,22 @@ const schema = z.object({
   RESEND_BASE_URL: z.string().default('https://api.resend.com'),
   EMAIL_FROM: z.string().default('Sendy Errands <no-reply@sendyerrands.com>'),
 
+  /**
+   * Where a reply actually goes.
+   *
+   * Mail is sent from no-reply@ via Resend, which has no inbox behind it —
+   * Resend's records are CNAMEs on the `send` and `rsend` subdomains and there
+   * is no MX for the root pointing at it. Without a Reply-To, someone who hits
+   * reply on a password-reset email writes into nothing and gets no bounce
+   * explaining why. Some people always will, and the ones who do are usually
+   * the ones something has gone wrong for.
+   *
+   * The root MX belongs to Zoho, so this must be a real Zoho mailbox. Change it
+   * to support@ once that exists as a group — an address nobody reads is the
+   * same void with a friendlier name.
+   */
+  EMAIL_REPLY_TO: z.string().default('sendyerrands@sendyerrands.com'),
+
   /*
    * WHATSAPP_* and TERMII_* used to live here, carrying the login OTP. Sign-in
    * is email and password now and the only code left goes to an inbox, so both

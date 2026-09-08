@@ -38,6 +38,10 @@ export async function sendEmail(params: {
       body: JSON.stringify({
         from: env.EMAIL_FROM,
         to: [params.to],
+        // Sending and receiving are two different services on this domain:
+        // Resend sends from no-reply@ and has no inbox, Zoho holds the root MX.
+        // Reply-To is what bridges them, so a reply reaches a person.
+        reply_to: env.EMAIL_REPLY_TO,
         subject: params.subject,
         // Both parts, always. A text/plain alternative is a meaningful signal
         // to spam filters and the only thing some clients will render.
