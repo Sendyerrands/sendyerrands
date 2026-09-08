@@ -113,6 +113,28 @@ export const meApi = {
    */
   deleteAccount: (password: string, token: string) =>
     api.post<{ deleted: true }>('/me/delete', { password }, token),
+
+  /** The list and the badge count in one call, so they cannot disagree. */
+  notifications: (token: string) =>
+    api.get<{ items: ApiNotification[]; unread: number }>('/me/notifications', token),
+
+  /** Omit `id` to mark everything read. */
+  markNotificationsRead: (token: string, id?: string) =>
+    api.post<{ marked: number; unread: number }>(
+      '/me/notifications/read',
+      id ? { id } : {},
+      token
+    ),
+};
+
+export type ApiNotification = {
+  id: string;
+  type: string;
+  title: string;
+  body: string;
+  orderId: string | null;
+  readAt: string | null;
+  createdAt: string;
 };
 
 export type WalletTxn = {

@@ -170,6 +170,7 @@ model User {
 
   addresses          Address[]
   favourites         Favourite[]
+  notifications      Notification[]
   orders             Order[]
   requests           MarketplaceRequest[]
   walletTxns         WalletTransaction[]
@@ -437,6 +438,37 @@ model OrderItem {
 
 /// Append-only audit trail. The customer's tracking stepper and the admin
 /// timeline are both rendered from these rows — never from status alone.
+/// What the customer is told, as opposed to what happened.
+///
+/// OrderEvent already records every transition, but it is an audit trail: it
+/// has no per-person read state, its labels are written for operations rather
+/// than for the person waiting at home, and it carries transitions nobody
+/// should be pinged about. Notifications are the subset worth interrupting
+/// someone for, in their language, with a record of whether they have seen it.
+///
+/// Deliberately written to the database rather than derived on read. When push
+/// arrives, the sender needs a durable row to work from — "what have we already
+/// told this person" cannot be recomputed from order state alone.
+model Notification {
+  id      String  @id @default(cuid())
+  userId  String
+  /// Reserved for the day this carries more than order updates.
+  type    String  @default("ORDER")
+  title   String
+  body    String
+  /// Set when tapping it should open an order.
+  orderId String?
+
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// The unread badge and the list both read by user, newest first.
+  @@index([userId, createdAt])
+  @@map("notifications")
+}
+
 model OrderEvent {
   id        String      @id @default(cuid())
   orderId   String

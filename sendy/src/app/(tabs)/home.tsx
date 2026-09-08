@@ -9,7 +9,7 @@ import { EmptyState, SectionGap, SectionHeader, Skeleton } from '@/components/ui
 import { Button, IconButton } from '@/components/ui/Button';
 import { LocationSelector, Screen } from '@/components/ui/Screen';
 import { VendorCard } from '@/components/VendorCard';
-import { useVendors } from '@/lib/api/hooks';
+import { useNotifications, useVendors } from '@/lib/api/hooks';
 import { colors, shadow } from '@/lib/theme';
 import { useApp } from '@/store/app';
 
@@ -21,6 +21,11 @@ export default function Home() {
   const router = useRouter();
   const { activeAddress } = useApp();
   const { data: vendors = [], isLoading, isError, error, refetch } = useVendors();
+
+  // Gated on a token inside the hook, so a signed-out home screen simply shows
+  // an unbadged bell rather than an error.
+  const { data: notifications } = useNotifications();
+  const unread = notifications?.unread ?? 0;
 
   const openVendor = (id: string) =>
     router.push({ pathname: '/vendor/[id]', params: { id } });
@@ -40,11 +45,17 @@ export default function Home() {
             className="ml-2"
             onPress={() => router.push('/(tabs)/search')}
           />
+          {/* The badge was hardcoded true and there was no onPress: a red dot
+              that never cleared, over nothing. It now counts real unread
+              notifications and opens the screen that shows them. */}
           <IconButton
             icon="notifications-outline"
-            accessibilityLabel="Notifications"
-            badge
+            accessibilityLabel={
+              unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'
+            }
+            badge={unread > 0}
             className="ml-2"
+            onPress={() => router.push('/notifications')}
           />
         </View>
 

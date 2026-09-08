@@ -3,6 +3,7 @@ import type { OrderStatus, OrderType, Prisma, PrismaClient } from '@prisma/clien
 import { conflict } from '@/lib/errors';
 import { prisma } from '@/lib/prisma';
 import { grossFromPayout } from '@/lib/money';
+import { notifyOrderStatus } from '@/services/notifications';
 
 type Tx = PrismaClient | Prisma.TransactionClient;
 
@@ -116,6 +117,17 @@ export async function transitionOrder(
         actorId: actor.id,
       },
     });
+
+    /*
+     * The customer-facing half of the same event. OrderEvent is the audit
+     * trail; this is what the person waiting at home is told, in their words
+     * and only for the transitions worth interrupting them for.
+     *
+     * Here rather than at each call site because every status change in the
+     * app comes through this function — hooking the callers instead would mean
+     * the one path someone forgets is the one that goes quiet.
+     */
+    await notifyOrderStatus(tx, updated);
 
     // Book the rider's cut exactly once, when the job actually completes.
     // Derive gross from the PAYOUT, not from deliveryFeeKobo: under a

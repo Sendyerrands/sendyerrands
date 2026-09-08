@@ -8,6 +8,7 @@ import { prisma } from '@/lib/prisma';
 import { deliveryCode, orderReference } from '@/lib/reference';
 import { asyncHandler, validate } from '@/middleware';
 import { requireAuth } from '@/middleware/auth';
+import { notifyOrderPlaced } from '@/services/notifications';
 import { buildStepper, transitionOrder } from '@/services/orders';
 
 export const ordersRouter = Router();
@@ -216,6 +217,10 @@ ordersRouter.post(
       include: { items: true, vendor: true },
     });
 
+    // A record of the order existing, so the notification list doubles as a
+    // history. Awaited but never fatal — see notifyOrderPlaced.
+    await notifyOrderPlaced(prisma, order);
+
     res.status(201).json({ data: order });
   })
 );
@@ -278,6 +283,10 @@ ordersRouter.post(
       include: { errandDetail: true },
     });
 
+    // A record of the order existing, so the notification list doubles as a
+    // history. Awaited but never fatal — see notifyOrderPlaced.
+    await notifyOrderPlaced(prisma, order);
+
     res.status(201).json({ data: order });
   })
 );
@@ -330,6 +339,10 @@ ordersRouter.post(
       },
       include: { packageDetail: true },
     });
+
+    // A record of the order existing, so the notification list doubles as a
+    // history. Awaited but never fatal — see notifyOrderPlaced.
+    await notifyOrderPlaced(prisma, order);
 
     res.status(201).json({ data: order });
   })

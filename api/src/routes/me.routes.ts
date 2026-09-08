@@ -326,3 +326,55 @@ meRouter.post(
     res.json({ data: { deleted: true } });
   })
 );
+
+/**
+ * GET /me/notifications — the bell.
+ *
+ * Returns the list and the unread count together. The badge and the screen are
+ * the same question asked twice, and splitting them into two endpoints means a
+ * badge that disagrees with the list someone is looking at.
+ */
+meRouter.get(
+  '/notifications',
+  asyncHandler(async (req, res) => {
+    const userId = req.auth!.id;
+
+    const [items, unread] = await Promise.all([
+      prisma.notification.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        // A cap, not pagination. Nobody scrolls a year of delivery updates, and
+        // an unbounded query on a busy account is a slow screen.
+        take: 50,
+      }),
+      prisma.notification.count({ where: { userId, readAt: null } }),
+    ]);
+
+    res.json({ data: { items, unread } });
+  })
+);
+
+/**
+ * POST /me/notifications/read — mark one, or all.
+ *
+ * updateMany scoped to this user: passing someone else's id marks nothing
+ * rather than failing, which is the right shape for an endpoint whose only
+ * effect is clearing a badge.
+ */
+meRouter.post(
+  '/notifications/read',
+  validate(z.object({ id: z.string().min(1).optional() })),
+  asyncHandler(async (req, res) => {
+    const userId = req.auth!.id;
+    const { id } = req.body as { id?: string };
+
+    const { count } = await prisma.notification.updateMany({
+      where: { userId, readAt: null, ...(id ? { id } : {}) },
+      data: { readAt: new Date() },
+    });
+
+    const unread = await prisma.notification.count({ where: { userId, readAt: null } });
+
+    res.json({ data: { marked: count, unread } });
+  })
+);

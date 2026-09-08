@@ -204,6 +204,33 @@ export function useDeleteAccount() {
 }
 
 /**
+ * Notifications, plus the unread count the bell badge renders.
+ *
+ * Polled rather than pushed. There is no APNs/FCM setup yet, so the only way
+ * an order update reaches a screen someone is already looking at is by asking.
+ * A minute is the compromise: fast enough that "your rider has arrived" is not
+ * stale by the time it matters, slow enough not to be a battery complaint.
+ */
+export function useNotifications() {
+  const { token } = useApp();
+  return useQuery({
+    queryKey: ['notifications'],
+    queryFn: () => meApi.notifications(token!),
+    enabled: Boolean(token),
+    refetchInterval: 60_000,
+  });
+}
+
+export function useMarkNotificationsRead() {
+  const { token } = useApp();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id?: string) => meApi.markNotificationsRead(token!, id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications'] }),
+  });
+}
+
+/**
  * Errand and package orders skip the cart entirely — they are described in one
  * form and priced by the server, so these post the whole thing in one call.
  * Money goes up as **kobo**, like everywhere else on the wire.
