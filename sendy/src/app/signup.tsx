@@ -168,7 +168,10 @@ export default function SignUp() {
             onChangeText={setReferral}
             placeholder="SENDY-XXXXX"
             autoCapitalize="characters"
-            helper="Get ₦1,000 off your first delivery."
+            // Was "Get ₦1,000 off your first delivery." Nothing reads this code
+            // after registration records it, so no discount has ever been
+            // applied — the field worked, the promise attached to it did not.
+            helper="If someone invited you, enter their code."
           />
         )}
 

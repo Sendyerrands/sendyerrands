@@ -9,7 +9,15 @@ import { FAQS } from '@/lib/mock';
 import { colors, shadow } from '@/lib/theme';
 
 /** Support (design.md §10) — contact channels, open tickets, FAQ. */
-const SUPPORT_PHONE = '+2347007363900';
+
+/**
+ * Stored in E.164 because both links need it that way: wa.me wants digits with
+ * the country code and no plus, and tel: is unambiguous across networks only
+ * with the country code. The previous number here was never provisioned, which
+ * made both buttons dead controls on the one screen people reach when something
+ * has already gone wrong.
+ */
+const SUPPORT_PHONE = '+2347047654376';
 
 export default function Support() {
   const router = useRouter();

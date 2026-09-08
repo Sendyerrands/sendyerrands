@@ -39,7 +39,13 @@
           "imageWidth": 76
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Sendy Errands uses your location to fill in your delivery address so you don't have to type it."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

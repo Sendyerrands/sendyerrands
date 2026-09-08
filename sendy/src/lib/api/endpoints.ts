@@ -105,6 +105,14 @@ export const meApi = {
 
   wallet: (token: string) =>
     api.get<{ balanceKobo: number; transactions: WalletTxn[] }>('/me/wallet', token),
+
+  /**
+   * Closes the account. POST rather than DELETE because it carries a body —
+   * the password, re-checked server-side so a borrowed unlocked phone cannot
+   * do this.
+   */
+  deleteAccount: (password: string, token: string) =>
+    api.post<{ deleted: true }>('/me/delete', { password }, token),
 };
 
 export type WalletTxn = {

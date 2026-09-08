@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Badge, Card, Divider } from '@/components/ui/atoms';
 import { Button } from '@/components/ui/Button';
@@ -24,6 +25,75 @@ export default function Addresses() {
   const [landmark, setLandmark] = useState('');
   const [contact, setContact] = useState('');
   const [phone, setPhone] = useState('');
+
+  const [locating, setLocating] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
+
+  /**
+   * Fills the street line from the device's GPS.
+   *
+   * This button existed with no onPress at all — it looked like the fastest way
+   * to add an address and did nothing, on a screen someone reaches when they
+   * are already mid-order.
+   *
+   * Foreground permission only. Background location would put the app in front
+   * of Google's prominent-disclosure review for a feature that runs for two
+   * seconds while someone is looking at the screen.
+   *
+   * Every failure says which failure it was. "Could not get your location" over
+   * a denied permission, a disabled GPS radio and an unreachable geocoder tells
+   * someone to retry the one thing that cannot work.
+   */
+  const useCurrentLocation = async () => {
+    setLocationError(null);
+    setLocating(true);
+
+    try {
+      const { status, canAskAgain } = await Location.requestForegroundPermissionsAsync();
+
+      if (status !== 'granted') {
+        setLocationError(
+          canAskAgain
+            ? 'Location permission is needed to fill this in. Type the address instead, or allow it and try again.'
+            : 'Location is blocked for Sendy Errands in your phone settings. Type the address, or turn it on in Settings.'
+        );
+        return;
+      }
+
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+      const [place] = await Location.reverseGeocodeAsync(position.coords);
+
+      if (!place) {
+        setLocationError('We found you but could not name the street. Type the address instead.');
+        return;
+      }
+
+      // `name` is the whole line on Android and the building name on iOS, so it
+      // is used only when there is no street to build from.
+      const street =
+        [place.streetNumber, place.street].filter(Boolean).join(' ') || place.name || '';
+      const line = [street, place.district, place.city].filter(Boolean).join(', ');
+
+      if (!line) {
+        setLocationError('We found you but could not name the street. Type the address instead.');
+        return;
+      }
+
+      setLine1(line);
+      // Straight into the form: the point of the button is to skip typing, and
+      // filling a field on a form nobody has opened is invisible.
+      setAdding(true);
+    } catch {
+      setLocationError(
+        'Could not read your location. Check that location is switched on, then try again.'
+      );
+    } finally {
+      setLocating(false);
+    }
+  };
 
   // Mirrors the server's zod schema.
   const canSave =
@@ -71,12 +141,45 @@ export default function Addresses() {
           />
           <Pressable
             accessibilityRole="button"
-            className="absolute bottom-3 right-3 flex-row items-center bg-white rounded-full px-4 h-10"
+            accessibilityLabel="Use current location"
+            accessibilityState={{ disabled: locating, busy: locating }}
+            disabled={locating}
+            onPress={useCurrentLocation}
+            className={`absolute bottom-3 right-3 flex-row items-center rounded-full px-4 h-10 ${
+              locating ? 'bg-white/70' : 'bg-white active:bg-surface'
+            }`}
           >
-            <Ionicons name="navigate" size={15} color={colors.pink[600]} />
-            <Text className="text-ink text-[13px] font-semibold ml-2">Use current location</Text>
+            {locating ? (
+              <ActivityIndicator size="small" color={colors.pink[600]} />
+            ) : (
+              <Ionicons name="navigate" size={15} color={colors.pink[600]} />
+            )}
+            <Text className="text-ink text-[13px] font-semibold ml-2">
+              {locating ? 'Finding you…' : 'Use current location'}
+            </Text>
           </Pressable>
         </View>
+
+        {/* Sits under the map rather than over it: an error on top of the
+            button that caused it covers the thing you would tap to retry. */}
+        {locationError ? (
+          <View className="mx-4 mt-3 bg-error/10 rounded-md p-3 flex-row items-start">
+            <Ionicons name="alert-circle-outline" size={16} color={colors.error} />
+            <View className="flex-1 ml-2">
+              <Text className="text-error text-[13px] leading-[18px]">{locationError}</Text>
+              {/* Only offered when Settings is genuinely where the fix is. */}
+              {locationError.includes('Settings') ? (
+                <Pressable
+                  onPress={() => void Linking.openSettings()}
+                  accessibilityRole="button"
+                  className="mt-2"
+                >
+                  <Text className="text-pink-700 text-[13px] font-semibold">Open Settings</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
+        ) : null}
 
         {/* saved */}
         <View className="p-4">

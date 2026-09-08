@@ -1,7 +1,11 @@
+import { randomBytes } from 'node:crypto';
+
 import { Router } from 'express';
 import { z } from 'zod';
 
-import { notFound } from '@/lib/errors';
+import { conflict, notFound, unauthorized } from '@/lib/errors';
+import { formatNaira } from '@/lib/money';
+import { hashPassword, verifyPassword } from '@/lib/password';
 import { prisma } from '@/lib/prisma';
 import { asyncHandler, validate } from '@/middleware';
 import { requireAuth } from '@/middleware/auth';
@@ -232,5 +236,93 @@ meRouter.delete(
     await prisma.favourite.deleteMany({ where: { userId: req.auth!.id, vendorId: vendor.id } });
 
     res.json({ data: { vendorId: vendor.id, slug: vendor.slug, saved: false } });
+  })
+);
+
+/**
+ * POST /me/delete — close the account.
+ *
+ * Required by Google Play's User Data policy, which wants deletion reachable
+ * from inside the app as well as from a web page. The web half lives at
+ * sendyerrands.com/delete-account.html.
+ *
+ * Anonymises rather than deletes the row. Every order, payment and wallet entry
+ * carries userId, and a real DELETE either cascades away the ledger — losing
+ * records we are required to keep for accounting and chargebacks — or fails on
+ * a foreign key. Blanking the personal columns removes the person while leaving
+ * the transactions, which is what the privacy policy promises and what the
+ * accountant needs.
+ */
+meRouter.post(
+  '/delete',
+  validate(z.object({ password: z.string().min(1) })),
+  asyncHandler(async (req, res) => {
+    const { password } = req.body as { password: string };
+
+    const user = await prisma.user.findUnique({ where: { id: req.auth!.id } });
+    if (!user) throw notFound('Account not found.');
+
+    // Re-authenticate. A stolen unlocked phone should not be able to close
+    // someone's account and take the audit trail with it.
+    if (!(await verifyPassword(password, user.passwordHash))) {
+      throw unauthorized('That password is not correct.');
+    }
+
+    /**
+     * Refuse for a stated reason rather than deleting into a mess.
+     *
+     * An order still running has a rider attached to it and money in flight;
+     * a positive balance is the customer's money. Both are cases where silently
+     * proceeding would be worse than saying no.
+     */
+    const activeOrders = await prisma.order.count({
+      where: { customerId: user.id, status: { notIn: ['DELIVERED', 'CANCELLED', 'REFUNDED'] } },
+    });
+
+    if (activeOrders > 0) {
+      throw conflict(
+        activeOrders === 1
+          ? 'You have an order still in progress. It has to finish or be cancelled first.'
+          : `You have ${activeOrders} orders still in progress. They have to finish or be cancelled first.`
+      );
+    }
+
+    if (user.walletBalanceKobo > 0) {
+      throw conflict(
+        `Your wallet still holds ${formatNaira(user.walletBalanceKobo)}. Spend it or contact support to withdraw it before closing your account.`
+      );
+    }
+
+    // Unique columns need unique replacements, or the second person to delete
+    // an account collides with the first. The cuid is already unique per row.
+    const tag = user.id;
+
+    await prisma.$transaction(async (tx) => {
+      // Saved addresses and favourites are purely personal — nothing downstream
+      // references them, so these are real deletes rather than anonymisation.
+      await tx.address.deleteMany({ where: { userId: user.id } });
+      await tx.favourite.deleteMany({ where: { userId: user.id } });
+
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          email: `deleted-${tag}@deleted.invalid`,
+          phone: `deleted-${tag}`,
+          firstName: 'Deleted',
+          lastName: 'account',
+          // A hash of a value nobody holds. Not an empty string: bcrypt.compare
+          // against '' is a cheap true for some inputs, and a blank hash would
+          // sit in the column looking like a bug rather than a decision.
+          passwordHash: await hashPassword(randomBytes(32).toString('hex')),
+          referralCode: `DELETED-${tag}`,
+          referredByCode: null,
+          isActive: false,
+        },
+      });
+    });
+
+    // 200 with a body rather than 204: the app needs to tell someone it worked
+    // before it signs them out, and an empty response gives it nothing to say.
+    res.json({ data: { deleted: true } });
   })
 );

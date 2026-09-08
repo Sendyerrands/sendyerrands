@@ -3,7 +3,12 @@ import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 
 import { colors, shadow } from '@/lib/theme';
 
-type Variant = 'primary' | 'secondary' | 'text';
+/**
+ * `danger` is deliberately its own variant rather than a className override on
+ * `primary`. A button that closes an account should not carry the same colour
+ * as the one that places an order — the affordance is the warning.
+ */
+type Variant = 'primary' | 'secondary' | 'text' | 'danger';
 
 type Props = {
   title: string;
@@ -36,13 +41,15 @@ export function Button({
     primary: 'bg-pink-600 active:bg-pink-700',
     secondary: 'bg-white border-[1.5px] border-pink-600 active:bg-pink-50',
     text: 'bg-transparent',
+    danger: 'bg-error active:opacity-90',
   };
   const label: Record<Variant, string> = {
     primary: 'text-white',
     secondary: 'text-pink-600',
     text: 'text-pink-600',
+    danger: 'text-white',
   };
-  const tint = variant === 'primary' ? colors.white : colors.pink[600];
+  const tint = variant === 'primary' || variant === 'danger' ? colors.white : colors.pink[600];
 
   return (
     <Pressable
@@ -50,7 +57,9 @@ export function Button({
       disabled={disabled || loading}
       accessibilityRole="button"
       accessibilityLabel={title}
-      style={variant === 'primary' && !disabled ? shadow.card : undefined}
+      style={
+        (variant === 'primary' || variant === 'danger') && !disabled ? shadow.card : undefined
+      }
       className={[
         'h-[52px] rounded-full flex-row items-center justify-center px-6',
         fullWidth ? 'w-full' : '',

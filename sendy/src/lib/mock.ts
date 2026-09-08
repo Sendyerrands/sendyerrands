@@ -724,7 +724,14 @@ export const CATEGORIES: Category[] = [
   { slug: 'bills', label: 'Bills', icon: 'reader-outline', comingSoon: true },
 ];
 
-export const RECENT_SEARCHES = ['Jollof rice', 'iPhone charger', 'Pharmacy near me', 'Dangote rice'];
+/*
+ * RECENT_SEARCHES lived here — four strings shown to every user on every device
+ * under a clock icon, as if they were that person's own history. Real history
+ * now comes from lib/recent-searches.ts, stored per device.
+ *
+ * SEARCH_SUGGESTIONS below stays: it is a curated list under a heading that
+ * says so, which is a product decision rather than a claim about the reader.
+ */
 
 export const SEARCH_SUGGESTIONS = [
   'Amala and ewedu',

@@ -189,6 +189,21 @@ export function useAddAddress() {
 }
 
 /**
+ * Closes the account.
+ *
+ * No cache invalidation on success — the caller signs out, which clears the
+ * whole client. Invalidating first would refetch every query with a token whose
+ * account no longer answers, turning a completed deletion into a screenful of
+ * errors on the way to the sign-in screen.
+ */
+export function useDeleteAccount() {
+  const { token } = useApp();
+  return useMutation({
+    mutationFn: (password: string) => meApi.deleteAccount(password, token!),
+  });
+}
+
+/**
  * Errand and package orders skip the cart entirely — they are described in one
  * form and priced by the server, so these post the whole thing in one call.
  * Money goes up as **kobo**, like everywhere else on the wire.

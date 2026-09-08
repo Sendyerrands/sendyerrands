@@ -9,7 +9,7 @@ import { Screen, ScreenHeader } from '@/components/ui/Screen';
 import { HELP_TOPICS, searchHelp } from '@/lib/help';
 import { colors } from '@/lib/theme';
 
-const SUPPORT_PHONE = '+2347007363900';
+const SUPPORT_PHONE = '+2347047654376';
 
 /** Help centre — browsable topics, with search across every article. */
 export default function HelpCentre() {

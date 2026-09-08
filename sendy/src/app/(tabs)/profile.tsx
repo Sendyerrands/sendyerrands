@@ -2,7 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
+import { Linking, Platform, Pressable, ScrollView, Share, Text, View } from 'react-native';
 
 import { Card, ListRow } from '@/components/ui/atoms';
 import { Button } from '@/components/ui/Button';
@@ -12,6 +13,28 @@ import { naira } from '@/lib/format';
 import { links } from '@/lib/links';
 import { colors } from '@/lib/theme';
 import { useApp } from '@/store/app';
+
+/**
+ * The share sheet on a phone, the clipboard on web.
+ *
+ * React Native Web does not implement Share — it throws rather than degrading —
+ * so the split is required, not defensive. The button's label follows it, since
+ * "Share" over something that silently copies is the same small lie as a button
+ * that does nothing.
+ */
+async function shareCode(code: string) {
+  const message = `Use my Sendy Errands invite code ${code} when you sign up. ${links.site}`;
+
+  try {
+    if (Platform.OS === 'web') {
+      await Clipboard.setStringAsync(message);
+    } else {
+      await Share.share({ message });
+    }
+  } catch {
+    // Dismissing the sheet rejects on iOS. That is a choice, not a failure.
+  }
+}
 
 /** Profile (design.md §10) — wallet, addresses, payment, settings, referrals. */
 export default function Profile() {
@@ -140,21 +163,45 @@ export default function Profile() {
           </Pressable>
         </View>
 
-        {/* referral */}
-        <View className="px-4 mt-4">
-          <Card className="flex-row items-center p-4">
-            <View className="w-10 h-10 rounded-full bg-pink-50 items-center justify-center mr-3">
-              <Ionicons name="people-outline" size={19} color={colors.pink[600]} />
-            </View>
-            <View className="flex-1">
-              <Text className="text-ink text-[15px] font-semibold">Invite friends, earn ₦1,000</Text>
-              <Text className="text-muted text-[13px] mt-0.5">Code {user?.referralCode ?? "—"}</Text>
-            </View>
-            <Pressable accessibilityRole="button" className="bg-pink-50 rounded-full px-4 py-2">
-              <Text className="text-pink-700 text-[13px] font-semibold">Share</Text>
-            </Pressable>
-          </Card>
-        </View>
+        {/*
+          referral
+
+          This said "Invite friends, earn ₦1,000" over a Share button with no
+          onPress. Neither half was true: nothing reads referredByCode after
+          registration stores it, so no reward has ever been paid, and the
+          button did nothing at all.
+
+          Paying the reward safely is a bigger job than the reward is worth
+          right now — with no device or identity checks, ₦1,000 a signup is free
+          money for anyone who can make email addresses, and it would be drawn
+          against a real Paystack balance. So the claim is gone until the
+          controls exist, and what remains is the part that genuinely works:
+          the code is real, it is recorded against whoever signs up with it, and
+          it can now actually be shared.
+        */}
+        {user?.referralCode ? (
+          <View className="px-4 mt-4">
+            <Card className="flex-row items-center p-4">
+              <View className="w-10 h-10 rounded-full bg-pink-50 items-center justify-center mr-3">
+                <Ionicons name="people-outline" size={19} color={colors.pink[600]} />
+              </View>
+              <View className="flex-1">
+                <Text className="text-ink text-[15px] font-semibold">Your invite code</Text>
+                <Text className="text-muted text-[13px] mt-0.5">{user.referralCode}</Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Share your invite code"
+                onPress={() => shareCode(user.referralCode)}
+                className="bg-pink-50 rounded-full px-4 py-2 active:bg-pink-100"
+              >
+                <Text className="text-pink-700 text-[13px] font-semibold">
+                  {Platform.OS === 'web' ? 'Copy' : 'Share'}
+                </Text>
+              </Pressable>
+            </Card>
+          </View>
+        ) : null}
 
         {/* account */}
         <Text className="text-muted text-[13px] font-semibold px-4 mt-7 mb-2">ACCOUNT</Text>
@@ -224,8 +271,17 @@ export default function Profile() {
           <ListRow
             icon="document-text-outline"
             label="Terms &amp; Conditions"
-            last
             onPress={() => Linking.openURL(links.terms)}
+          />
+          {/* Play requires this to be reachable in the app, not only by
+              emailing support — and the published policy says it lives exactly
+              here, so the two have to agree. */}
+          <ListRow
+            icon="trash-outline"
+            label="Delete account"
+            danger
+            last
+            onPress={() => router.push('/delete-account')}
           />
         </Card>
 
