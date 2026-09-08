@@ -44,11 +44,11 @@ const schema = z.object({
    * explaining why. Some people always will, and the ones who do are usually
    * the ones something has gone wrong for.
    *
-   * The root MX belongs to Zoho, so this must be a real Zoho mailbox. Change it
-   * to support@ once that exists as a group — an address nobody reads is the
-   * same void with a friendlier name.
+   * The root MX belongs to Zoho, so this must be a real Zoho mailbox or alias.
+   * support@ is an alias on the one mailbox rather than a second account: an
+   * inbox nobody opens is the same void with a friendlier name.
    */
-  EMAIL_REPLY_TO: z.string().default('sendyerrands@sendyerrands.com'),
+  EMAIL_REPLY_TO: z.string().default('support@sendyerrands.com'),
 
   /*
    * WHATSAPP_* and TERMII_* used to live here, carrying the login OTP. Sign-in

@@ -22,7 +22,7 @@ const SITE = 'https://sendyerrands.com';
  * the app's Reply-To all follow. The API keeps its own copy in EMAIL_REPLY_TO
  * because a server cannot import from the app; keep the two in step.
  */
-const SUPPORT_EMAIL = 'sendyerrands@sendyerrands.com';
+const SUPPORT_EMAIL = 'support@sendyerrands.com';
 
 export const links = {
   site: SITE,
