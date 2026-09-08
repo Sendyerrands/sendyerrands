@@ -46,13 +46,18 @@ header {
 
 header .wrap { display: flex; align-items: center; gap: 12px; }
 
+/*
+ * The app's own icon rather than an "SE" monogram, so someone arriving from
+ * the Play listing or a Reply-To link sees the same mark that is on their home
+ * screen. The artwork already carries the pink ground, so this only has to
+ * clip the corners.
+ */
 .mark {
   width: 34px; height: 34px; border-radius: 10px;
-  background: var(--pink-600); color: var(--white);
-  display: grid; place-items: center;
-  font-weight: 800; font-size: 15px; letter-spacing: -0.5px;
-  flex: none; text-decoration: none;
+  flex: none; display: block; overflow: hidden;
+  text-decoration: none;
 }
+.mark img { width: 100%; height: 100%; display: block; }
 
 .brand { font-weight: 700; color: var(--ink); text-decoration: none; font-size: 16px; }
 
