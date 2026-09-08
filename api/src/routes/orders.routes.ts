@@ -25,7 +25,22 @@ const createOrderSchema = z.object({
   addressId: z.string().min(1),
   items: z.array(cartItemSchema).min(1, 'Your cart is empty.'),
   scheduledFor: z.coerce.date().optional(),
-  discountKobo: z.number().int().min(0).default(0),
+  /*
+   * discountKobo used to be accepted here, from the request body, and passed
+   * straight into computeTotals. Item prices are looked up server-side from the
+   * product rows, so those could not be forged — but the discount was simply
+   * believed, and computeTotals subtracts it from the gross. A crafted request
+   * carrying a large enough discount produced totalKobo: 0 on a real order,
+   * which a real rider would then be dispatched to fulfil, against a live
+   * Paystack account.
+   *
+   * No client ever sent it: the app reads discountKobo back off an order and
+   * has never written it. Nothing legitimate is lost by removing it.
+   *
+   * When promotions exist, the discount gets computed here from a promo code
+   * and the customer's own order history — server-side, from data the customer
+   * cannot edit. A number the client chooses is not a discount, it is a price.
+   */
 });
 
 const errandSchema = z.object({
@@ -169,7 +184,8 @@ ordersRouter.post(
     const totals = computeTotals({
       subtotalKobo,
       deliveryFeeKobo: vendor.deliveryFeeKobo,
-      discountKobo: body.discountKobo,
+      // Zero until a server-side promotions engine exists. See the schema above.
+      discountKobo: 0,
       freeOverKobo: vendor.freeOverKobo,
     });
 

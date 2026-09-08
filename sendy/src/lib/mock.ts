@@ -633,10 +633,19 @@ export const PROMOS: Promo[] = [
   {
     // Crimson, rider + yellow blob hard right. Empty from 0 to 65%.
     id: 'promo-1',
-    title: '20% off your first three errands',
+    /*
+     * Was "20% off your first three errands", advertised on the home carousel.
+     * Nothing implemented it: there is no promotions engine, and the only
+     * discount path was a number the client could put in the request body,
+     * which has been removed. The offer was never applied to a single order.
+     *
+     * The copy now describes what the errand pillar actually does, which is
+     * the part worth advertising anyway.
+     */
+    title: 'Send someone to buy it for you',
     href: '/errand',
     bg: '#D90330',
-    headline: '20% off your\nfirst 3 errands',
+    headline: 'We buy it.\nYou stay put.',
     sub: 'We queue, we haggle, we deliver.',
     cta: 'Send a rider',
     textColor: '#FFFFFF',
