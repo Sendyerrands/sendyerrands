@@ -2,13 +2,14 @@ import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Card, ListRow } from '@/components/ui/atoms';
 import { Button } from '@/components/ui/Button';
 import { Screen } from '@/components/ui/Screen';
 import { koboToNaira } from '@/lib/api/mappers';
 import { naira } from '@/lib/format';
+import { links } from '@/lib/links';
 import { colors } from '@/lib/theme';
 import { useApp } from '@/store/app';
 
@@ -207,6 +208,25 @@ export default function Profile() {
           />
           <ListRow icon="headset-outline" label="Help & support" onPress={() => router.push('/help')} />
           <ListRow icon="log-out-outline" label="Log out" danger last onPress={async () => { await signOut(); router.replace('/'); }} />
+        </Card>
+
+        {/* Legal has to be reachable from inside the app, not only from the
+            Play listing — someone deciding whether to trust us with an address
+            and a card is doing it here, not in the store. Both open the same
+            pages the listing points at, so there is one copy to keep current. */}
+        <Text className="text-muted text-[13px] font-semibold mt-6 mb-2.5 px-1">LEGAL</Text>
+        <Card>
+          <ListRow
+            icon="shield-checkmark-outline"
+            label="Privacy Policy"
+            onPress={() => Linking.openURL(links.privacy)}
+          />
+          <ListRow
+            icon="document-text-outline"
+            label="Terms &amp; Conditions"
+            last
+            onPress={() => Linking.openURL(links.terms)}
+          />
         </Card>
 
         {/* Was a hardcoded "v1.0.0 (MVP)" — the same string in every build ever
