@@ -6,6 +6,7 @@ import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import { Card, Divider } from '@/components/ui/atoms';
 import { Screen } from '@/components/ui/Screen';
 import { useOrders } from '@/lib/api/hooks';
+import { links } from '@/lib/links';
 import { FAQS } from '@/lib/mock';
 import { colors, shadow } from '@/lib/theme';
 
@@ -19,6 +20,18 @@ import { colors, shadow } from '@/lib/theme';
  * has already gone wrong.
  */
 const SUPPORT_PHONE = '+2347047654376';
+
+/**
+ * Pre-fills the subject with the order reference when there is a live one.
+ *
+ * The Terms tell customers to quote it and support will ask for it, so filling
+ * it in beats asking someone to copy it across from another screen — the step
+ * where it gets mistyped or left out.
+ */
+function emailSupportUrl(reference?: string): string {
+  const subject = reference ? `Help with order ${reference}` : 'Sendy Errands support';
+  return `${links.support}?subject=${encodeURIComponent(subject)}`;
+}
 
 export default function Support() {
   const router = useRouter();
@@ -46,7 +59,7 @@ export default function Support() {
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 28 }} showsVerticalScrollIndicator={false}>
         {/* channels */}
-        <View className="flex-row mb-4">
+        <View className="flex-row mb-3">
           <Channel
             icon="logo-whatsapp"
             label="WhatsApp"
@@ -62,6 +75,33 @@ export default function Support() {
             onPress={() => Linking.openURL(`tel:${SUPPORT_PHONE}`)}
           />
         </View>
+
+        {/*
+          The third channel, and the one the whole Zoho mailbox exists for.
+          Until now nothing in the app offered an email address at all: the
+          inbox was reachable only by replying to a password-reset message,
+          which is a strange way to report a missing parcel.
+
+          Full width rather than squeezed into the row above because it carries
+          a subject line and the address itself — worth reading before tapping,
+          unlike a phone number.
+        */}
+        <Pressable
+          onPress={() => Linking.openURL(emailSupportUrl(activeOrders[0]?.reference))}
+          accessibilityRole="button"
+          accessibilityLabel={`Email support at ${links.supportEmail}`}
+          style={shadow.card}
+          className="flex-row items-center bg-white rounded-lg p-4 mb-4 active:bg-surface"
+        >
+          <View className="w-10 h-10 rounded-full bg-pink-50 items-center justify-center mr-3">
+            <Ionicons name="mail-outline" size={19} color={colors.pink[600]} />
+          </View>
+          <View className="flex-1">
+            <Text className="text-ink text-[15px] font-semibold">Email us</Text>
+            <Text className="text-muted text-[13px] mt-0.5">{links.supportEmail}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={colors.muted} />
+        </Pressable>
 
         {/*
           This was "Your tickets" over a fabricated one: "Missing item ·

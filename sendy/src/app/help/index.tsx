@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/atoms';
 import { Input } from '@/components/ui/Input';
 import { Screen, ScreenHeader } from '@/components/ui/Screen';
 import { HELP_TOPICS, searchHelp } from '@/lib/help';
+import { links } from '@/lib/links';
 import { colors } from '@/lib/theme';
 
 const SUPPORT_PHONE = '+2347047654376';
@@ -113,6 +114,15 @@ export default function HelpCentre() {
             label="Call us"
             hint="7am–11pm"
             onPress={() => Linking.openURL(`tel:${SUPPORT_PHONE}`)}
+          />
+          <View className="w-3" />
+          {/* The same three channels as the Support tab. Someone who ends up
+              here rather than there should not have fewer ways out. */}
+          <Contact
+            icon="mail-outline"
+            label="Email"
+            hint="Within a day"
+            onPress={() => Linking.openURL(links.support)}
           />
         </View>
       </ScrollView>
