@@ -68,6 +68,27 @@ const schema = z.object({
   CLOUDINARY_UPLOAD_FOLDER: z.string().default('sendy'),
 
   DEFAULT_DELIVERY_FEE_KOBO: z.coerce.number().default(130_000),
+
+  /**
+   * The floor on what a customer may offer for delivery.
+   *
+   * Riders name their own price now, so the fee is no longer ours to fix — but
+   * an offer nobody will ever accept is not a cheap delivery, it is a job board
+   * full of dead listings and a customer waiting on a rider who is never
+   * coming. ₦500 is low enough to leave real room to haggle and high enough
+   * that the offer is serious.
+   */
+  MIN_DELIVERY_FEE_KOBO: z.coerce.number().default(50_000),
+
+  /**
+   * How far above the customer's offer a rider may counter, as a multiple.
+   *
+   * A genuine counter is "this is across town, it is ₦4,000 not ₦1,300". Three
+   * times covers that. Without a ceiling the field accepts ₦999,999, which is
+   * not a negotiation — it is noise in a list the customer has to read, and on
+   * a mis-tap it is a number they might accept by accident.
+   */
+  MAX_COUNTER_MULTIPLE: z.coerce.number().default(3),
   SERVICE_FEE_KOBO: z.coerce.number().default(30_000),
   PLATFORM_COMMISSION_BPS: z.coerce.number().default(1_500),
   BID_WINDOW_MINUTES: z.coerce.number().default(30),

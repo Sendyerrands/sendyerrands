@@ -8,6 +8,7 @@ import { prisma } from '@/lib/prisma';
 import { deliveryCode, orderReference } from '@/lib/reference';
 import { asyncHandler, validate } from '@/middleware';
 import { requireAuth } from '@/middleware/auth';
+import { acceptBid, assertOfferAcceptable, listBids } from '@/services/delivery-bids';
 import { notifyOrderPlaced } from '@/services/notifications';
 import { buildStepper, transitionOrder } from '@/services/orders';
 
@@ -52,6 +53,15 @@ const errandSchema = z.object({
   pickupAddress: z.string().min(4).max(240),
   budgetKobo: z.number().int().min(0).optional(),
   photoUrls: z.array(z.string().url()).max(3).default([]),
+  /**
+   * What the customer will pay a rider to run this.
+   *
+   * Optional, and it has to stay optional: build 5 is already installed on
+   * phones and does not send it. Omitted, the old fixed fee applies and the
+   * order behaves exactly as before — a rider sees a price and accepts it.
+   * Sent, it is the customer's opening offer and riders may counter.
+   */
+  deliveryFeeKobo: z.number().int().positive().optional(),
 });
 
 const packageSchema = z.object({
@@ -74,6 +84,8 @@ const packageSchema = z.object({
    */
   originState: z.string().max(40).optional(),
   destinationState: z.string().max(40).optional(),
+  /** The customer's offer. Omitted, the size-based suggestion is charged. */
+  deliveryFeeKobo: z.number().int().positive().optional(),
 });
 
 /**
@@ -251,9 +263,14 @@ ordersRouter.post(
      * in front of it and reported the real price. Sendy never holds that money,
      * which is what lets this scale without working capital.
      */
+    // The customer's opening offer, or the old fixed fee when the app is too
+    // old to send one. Checked against the floor either way.
+    const offeredKobo = body.deliveryFeeKobo ?? env.DEFAULT_DELIVERY_FEE_KOBO;
+    assertOfferAcceptable(offeredKobo);
+
     const totals = computeTotals({
       subtotalKobo: 0,
-      deliveryFeeKobo: env.DEFAULT_DELIVERY_FEE_KOBO,
+      deliveryFeeKobo: offeredKobo,
     });
 
     const order = await prisma.order.create({
@@ -299,7 +316,17 @@ ordersRouter.post(
     const customerId = req.auth!.id;
     const body = req.body as z.infer<typeof packageSchema>;
 
-    const deliveryFeeKobo = parcelFeeKobo(body.size, body.originState, body.destinationState);
+    /*
+     * The size-and-distance table is now a suggestion rather than the price.
+     *
+     * It still computes, and the app pre-fills the field with it, because a
+     * customer staring at an empty "what will you pay?" box has no idea what a
+     * Lagos-to-Kano parcel is worth and would guess badly in both directions.
+     * What changed is that they can move the number, and riders can counter it.
+     */
+    const suggestedKobo = parcelFeeKobo(body.size, body.originState, body.destinationState);
+    const deliveryFeeKobo = body.deliveryFeeKobo ?? suggestedKobo;
+    assertOfferAcceptable(deliveryFeeKobo);
 
     // A parcel has no goods value — the delivery fee is the whole charge, and
     // there is no service fee to add on top of it.
@@ -544,5 +571,48 @@ ordersRouter.post(
     });
 
     res.json({ data: updated });
+  })
+);
+
+/**
+ * GET /orders/:id/bids — riders who want more than was offered.
+ *
+ * Returns the rider's rating, completed jobs and vehicle alongside the price,
+ * because "₦2,000" on its own is not a decision anyone can make. Choosing
+ * purely on price is what makes a bidding market feel like a race to the
+ * bottom; showing who is asking is what makes it a choice.
+ */
+ordersRouter.get(
+  '/:id/bids',
+  asyncHandler(async (req, res) => {
+    const order = await prisma.order.findFirst({
+      where: { id: req.params.id!, customerId: req.auth!.id },
+      select: { id: true, deliveryFeeKobo: true, riderId: true },
+    });
+    if (!order) throw notFound('Order');
+
+    const bids = await listBids(order.id);
+
+    res.json({
+      data: {
+        offeredKobo: order.deliveryFeeKobo,
+        assigned: Boolean(order.riderId),
+        bids,
+      },
+    });
+  })
+);
+
+/** POST /orders/:id/bids/:bidId/accept — take one, and assign that rider. */
+ordersRouter.post(
+  '/:id/bids/:bidId/accept',
+  asyncHandler(async (req, res) => {
+    const order = await acceptBid({
+      orderId: req.params.id!,
+      customerId: req.auth!.id,
+      bidId: req.params.bidId!,
+    });
+
+    res.json({ data: order });
   })
 );

@@ -180,41 +180,42 @@ model User {
 }
 
 model Rider {
-  id            String      @id @default(cuid())
+  id                    String       @id @default(cuid())
   /// Login identifier, lowercased. Unique within riders only — the same person
   /// may hold a customer account on the same address.
-  email         String      @unique
-  passwordHash  String
-  phone         String      @unique
-  firstName     String
-  lastName      String
+  email                 String       @unique
+  passwordHash          String
+  phone                 String       @unique
+  firstName             String
+  lastName              String
   /// Structured vehicle data, distinct from the VEHICLE_PAPERS document: this
   /// is what dispatch matches on, that is a scan a human checks once.
-  vehicleType   VehicleType?
-  plateNumber   String?
-  zone          String?
-  status        RiderStatus @default(PENDING)
-  isOnline      Boolean     @default(false)
-  rating        Float       @default(5)
-  completedJobs Int         @default(0)
+  vehicleType           VehicleType?
+  plateNumber           String?
+  zone                  String?
+  status                RiderStatus  @default(PENDING)
+  isOnline              Boolean      @default(false)
+  rating                Float        @default(5)
+  completedJobs         Int          @default(0)
   // Payout destination — verified against Paystack before any transfer.
-  bankCode      String?
-  bankAccountNo String?
-  bankName      String?
+  bankCode              String?
+  bankAccountNo         String?
+  bankName              String?
   /// The account holder's name as Paystack resolved it — never as the rider
   /// typed it. This is the only evidence that the account exists and belongs to
   /// someone, and it is what a human checks before releasing money.
-  bankAccountName String?
+  bankAccountName       String?
   /// Paystack's transfer recipient handle, created once and reused. Making a
   /// new recipient per payout is wasted calls and extra ways to get it wrong.
   paystackRecipientCode String?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
 
-  documents RiderDocument[]
-  orders    Order[]
-  earnings  RiderEarning[]
-  payouts   Payout[]
+  documents    RiderDocument[]
+  orders       Order[]
+  earnings     RiderEarning[]
+  payouts      Payout[]
+  deliveryBids DeliveryBid[]
 
   @@index([isOnline, status])
   @@map("riders")
@@ -331,13 +332,13 @@ model Vendor {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  products    Product[]
-  orders      Order[]
-  bids        Bid[]
+  products     Product[]
+  orders       Order[]
+  bids         Bid[]
   favouritedBy Favourite[]
-  invitedTo   MarketplaceRequest[] @relation("RequestInvites")
+  invitedTo    MarketplaceRequest[] @relation("RequestInvites")
   /// Set when this vendor was created by approving an application.
-  application VendorApplication?
+  application  VendorApplication?
 
   @@map("vendors")
 }
@@ -412,6 +413,7 @@ model Order {
   packageDetail PackageDetail?
   request       MarketplaceRequest?
   earning       RiderEarning?
+  deliveryBids  DeliveryBid[]
 
   @@index([customerId, status])
   @@index([riderId, status])
@@ -438,6 +440,48 @@ model OrderItem {
 
 /// Append-only audit trail. The customer's tracking stepper and the admin
 /// timeline are both rendered from these rows — never from status alone.
+/// A rider asking for more than the customer offered.
+///
+/// The customer names a delivery fee when they post. A rider who is happy with
+/// it just accepts the job — that path needs no row here, and stays the fast
+/// one, because most jobs should end there. This table exists only for the
+/// minority case: a rider who wants the job but not at that price.
+///
+/// Deliberately separate from `Bid`, which is vendors quoting to supply goods on
+/// a marketplace request. Same word, different parties, different lifecycle —
+/// merging them would mean one table where half the columns are null.
+model DeliveryBid {
+  id        String            @id @default(cuid())
+  orderId   String
+  riderId   String
+  /// What the rider wants instead. Always above the customer's offer: a rider
+  /// happy with less would simply accept.
+  priceKobo Int
+  note      String?
+  status    DeliveryBidStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  rider Rider @relation(fields: [riderId], references: [id], onDelete: Cascade)
+
+  /// One live counter per rider per order — they revise it rather than stack.
+  @@unique([orderId, riderId])
+  /// The customer's list reads by order, cheapest first.
+  @@index([orderId, priceKobo])
+  @@map("delivery_bids")
+}
+
+enum DeliveryBidStatus {
+  PENDING
+  ACCEPTED
+  /// Set on every other bid the moment one is accepted, so a rider whose offer
+  /// lost is told rather than left watching a job that is already gone.
+  DECLINED
+  WITHDRAWN
+}
+
 /// What the customer is told, as opposed to what happened.
 ///
 /// OrderEvent already records every transition, but it is an audit trail: it
@@ -486,17 +530,17 @@ model OrderEvent {
 }
 
 model ErrandDetail {
-  id            String   @id @default(cuid())
-  orderId       String   @unique
-  task          String
-  details       String?
-  pickupName    String
-  pickupAddress String
+  id                  String    @id @default(cuid())
+  orderId             String    @unique
+  task                String
+  details             String?
+  pickupName          String
+  pickupAddress       String
   /// What the customer guessed before anyone had looked. Never charged — it
   /// exists so a rider can judge whether the job is worth accepting.
-  budgetKobo    Int?
+  budgetKobo          Int?
   /// What the rider found it actually costs, entered at the stall.
-  actualItemKobo Int?
+  actualItemKobo      Int?
   /// The merchant's account, entered by the rider and resolved against
   /// Paystack before the customer ever sees it. The resolved holder name is
   /// the whole safety property: a rider who types their own account number
@@ -508,16 +552,16 @@ model ErrandDetail {
   /// When the customer said they had transferred. Sendy cannot verify this —
   /// the money never passes through it — so this is a claim with a timestamp,
   /// which is still most of what a dispute needs.
-  merchantPaidAt   DateTime?
-  paymentProofUrl  String?
+  merchantPaidAt      DateTime?
+  paymentProofUrl     String?
   /// The two rider pings.
-  assetSecuredAt DateTime?
-  atDoorstepAt   DateTime?
+  assetSecuredAt      DateTime?
+  atDoorstepAt        DateTime?
   // What the rider actually spent, from the receipt. Change is refunded.
-  spentKobo     Int?
-  receiptUrl    String?
-  photoUrls     String[]
-  createdAt     DateTime @default(now())
+  spentKobo           Int?
+  receiptUrl          String?
+  photoUrls           String[]
+  createdAt           DateTime  @default(now())
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
@@ -701,10 +745,10 @@ model Payout {
   bankName      String?
   bankAccountNo String?
 
-  failureReason String?
+  failureReason   String?
   providerPayload Json?
-  createdAt     DateTime  @default(now())
-  settledAt     DateTime?
+  createdAt       DateTime  @default(now())
+  settledAt       DateTime?
 
   rider    Rider          @relation(fields: [riderId], references: [id], onDelete: Cascade)
   earnings RiderEarning[]
@@ -760,7 +804,6 @@ model VendorApplication {
 
 /**
  * A vendor a customer saved.
- *
  * Server-side rather than on the device: the heart was local component state,
  * so it reset on every remount and meant nothing on a second device or after a
  * reinstall. A saved vendor is a signal worth keeping — it is also the only

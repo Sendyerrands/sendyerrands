@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { asyncHandler, validate } from '@/middleware';
 import { requireApprovedRider, requireAuth } from '@/middleware/auth';
 import { isOwnCloudinaryUrl } from '@/services/cloudinary';
+import { counterBid } from '@/services/delivery-bids';
 import { transitionOrder } from '@/services/orders';
 import { listBanks, resolveAccount } from '@/services/paystack';
 import { PAYOUT_HOLD_HOURS, PAYOUT_MIN_KOBO, payableFor } from '@/services/payouts';
@@ -674,5 +675,43 @@ riderRouter.post(
 
     const updated = await transitionOrder(order.id, 'AT_DOORSTEP', { type: 'rider', id: riderId });
     res.json({ data: updated });
+  })
+);
+
+/**
+ * POST /rider/jobs/:id/bid — ask for more than the customer offered.
+ *
+ * The alternative to this is the plain accept, which is unchanged and remains
+ * the fast path: a rider happy with the offer takes the job in one tap and no
+ * customer decision is involved. This exists for the rider who wants the job
+ * but not at that price, and it is why the board still shows a number.
+ */
+riderRouter.post(
+  '/jobs/:id/bid',
+  validate(z.object({ priceKobo: z.number().int().positive(), note: z.string().max(140).optional() })),
+  asyncHandler(async (req, res) => {
+    const body = req.body as { priceKobo: number; note?: string };
+
+    const bid = await counterBid({
+      orderId: req.params.id!,
+      riderId: req.auth!.id,
+      priceKobo: body.priceKobo,
+      note: body.note,
+    });
+
+    res.status(201).json({ data: bid });
+  })
+);
+
+/** DELETE /rider/jobs/:id/bid — withdraw it. Idempotent. */
+riderRouter.delete(
+  '/jobs/:id/bid',
+  asyncHandler(async (req, res) => {
+    await prisma.deliveryBid.updateMany({
+      where: { orderId: req.params.id!, riderId: req.auth!.id, status: 'PENDING' },
+      data: { status: 'WITHDRAWN' },
+    });
+
+    res.json({ data: { withdrawn: true } });
   })
 );
