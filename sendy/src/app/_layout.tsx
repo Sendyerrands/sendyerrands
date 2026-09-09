@@ -30,9 +30,30 @@ export default function RootLayout() {
     Inter_700Bold,
   });
 
+  /**
+   * Hold the native splash until the fonts are in — but never indefinitely.
+   *
+   * This used to hide immediately, on the reasoning that the system font is a
+   * clean fallback and blocking on webfonts is rude. The fallback is clean; the
+   * swap is not. The splash renders "Sendy Errands" at 34px, which fits one
+   * line in Plus Jakarta and does not in the wider system stack — so the first
+   * paint wrapped to "Sendy" / "Errands", then snapped back to one line when
+   * the font arrived, shifting everything below it. Reported, accurately, as
+   * the text flickering between two names.
+   *
+   * Holding costs nothing here: the native splash is the same mark on the same
+   * pink as the screen replacing it, so the wait is invisible. The timeout is
+   * the important half — a font that never resolves must not leave someone
+   * staring at a splash screen forever.
+   */
   useEffect(() => {
-    // Don't block the UI on webfonts — the system stack is a clean fallback.
-    SplashScreen.hideAsync().catch(() => {});
+    if (loaded) {
+      SplashScreen.hideAsync().catch(() => {});
+      return;
+    }
+
+    const giveUp = setTimeout(() => SplashScreen.hideAsync().catch(() => {}), 3000);
+    return () => clearTimeout(giveUp);
   }, [loaded]);
 
   // One client for the app's lifetime; created in state so Fast Refresh doesn't

@@ -127,6 +127,25 @@ export const meApi = {
     ),
 };
 
+export type ApiDeliveryBid = {
+  id: string;
+  orderId: string;
+  riderId: string;
+  priceKobo: number;
+  note: string | null;
+  status: 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'WITHDRAWN';
+  createdAt: string;
+  /** Enough to choose on more than price alone. */
+  rider: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    rating: number;
+    completedJobs: number;
+    vehicleType: string | null;
+  };
+};
+
 export type ApiNotification = {
   id: string;
   type: string;
@@ -195,6 +214,16 @@ export const ordersApi = {
     api.get<ApiOrder[]>(`/orders?status=${status}`, token),
 
   detail: (id: string, token: string) => api.get<ApiOrder>(`/orders/${id}`, token),
+
+  /** Riders who want more than was offered, cheapest first. */
+  bids: (id: string, token: string) =>
+    api.get<{ offeredKobo: number; assigned: boolean; bids: ApiDeliveryBid[] }>(
+      `/orders/${id}/bids`,
+      token
+    ),
+
+  acceptBid: (id: string, bidId: string, token: string) =>
+    api.post<ApiOrder>(`/orders/${id}/bids/${bidId}/accept`, {}, token),
 
   cancel: (id: string, reason: string | undefined, token: string) =>
     api.post<ApiOrder>(`/orders/${id}/cancel`, { reason }, token),
@@ -308,6 +337,18 @@ export const riderApi = {
     api.patch<{ id: string; isOnline: boolean }>('/rider/availability', { isOnline }, token),
 
   banks: (token: string) => api.get<Bank[]>('/rider/banks', token),
+
+  /**
+   * Ask for more than the customer offered.
+   *
+   * The alternative is `acceptJob`, which is unchanged and stays the one-tap
+   * path — this is only for a rider who wants the job at a different price.
+   */
+  bid: (orderId: string, priceKobo: number, note: string | undefined, token: string) =>
+    api.post<ApiDeliveryBid>(`/rider/jobs/${orderId}/bid`, { priceKobo, note }, token),
+
+  withdrawBid: (orderId: string, token: string) =>
+    api.del<{ withdrawn: true }>(`/rider/jobs/${orderId}/bid`, token),
 
   /** Asks the bank who owns an account, without storing anything. */
   resolveAccount: (bankCode: string, accountNumber: string, token: string) =>

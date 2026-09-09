@@ -221,6 +221,51 @@ export function useNotifications() {
   });
 }
 
+/**
+ * Riders asking more than the customer offered.
+ *
+ * Polled while the order is still unassigned, because a bid arriving is the
+ * one thing on that screen the customer did not cause and would otherwise only
+ * see by leaving and coming back.
+ */
+export function useOrderBids(orderId: string | undefined, enabled = true) {
+  const { token } = useApp();
+  return useQuery({
+    queryKey: ['order-bids', orderId],
+    queryFn: () => ordersApi.bids(orderId!, token!),
+    enabled: Boolean(orderId && token && enabled),
+    refetchInterval: enabled ? 15_000 : false,
+  });
+}
+
+export function useAcceptBid(orderId: string) {
+  const { token } = useApp();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (bidId: string) => ordersApi.acceptBid(orderId, bidId, token!),
+    onSuccess: () => {
+      // The order itself changed — fee, total, rider and status — so the
+      // tracking screen has to reread, not just the bid list.
+      void qc.invalidateQueries({ queryKey: ['order', orderId] });
+      void qc.invalidateQueries({ queryKey: ['order-bids', orderId] });
+      void qc.invalidateQueries({ queryKey: ['orders'] });
+    },
+  });
+}
+
+export function useSubmitBid(orderId: string) {
+  const { token } = useApp();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { priceKobo: number; note?: string }) =>
+      riderApi.bid(orderId, input.priceKobo, input.note, token!),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['rider-job', orderId] });
+      void qc.invalidateQueries({ queryKey: ['rider-board'] });
+    },
+  });
+}
+
 export function useMarkNotificationsRead() {
   const { token } = useApp();
   const qc = useQueryClient();
@@ -243,6 +288,14 @@ export type ErrandBody = {
   pickupAddress: string;
   budgetKobo?: number;
   photoUrls?: string[];
+  /**
+   * What the customer will pay for delivery.
+   *
+   * Optional because the server still defaults it, and because omitting it is
+   * exactly what an older install does. Sent, it is the opening offer and
+   * riders may counter it.
+   */
+  deliveryFeeKobo?: number;
 };
 
 export function useCreateErrand() {
@@ -266,6 +319,15 @@ export type PackageBody = {
   isFragile?: boolean;
   notes?: string;
   addressId?: string;
+  /**
+   * What the customer will pay for delivery.
+   *
+   * Optional because the server still defaults it, and because omitting it is
+   * exactly what an older install does. Sent, it is the opening offer and
+   * riders may counter it.
+   */
+  deliveryFeeKobo?: number;
+
   /**
    * Sent by the Logistics flow. The server recomputes the fee from these rather
    * than trusting a price or an "interstate" flag from the client, so omitting

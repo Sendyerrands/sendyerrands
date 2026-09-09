@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 
+import { DeliveryOfferInput, MIN_OFFER_NAIRA } from '@/components/DeliveryOfferInput';
 import { Button } from '@/components/ui/Button';
 import { Input, SelectField } from '@/components/ui/Input';
 import { Screen, ScreenHeader, StickyBar } from '@/components/ui/Screen';
@@ -14,6 +15,15 @@ import { colors } from '@/lib/theme';
 import { useApp } from '@/store/app';
 
 const MAX_PHOTOS = 3;
+
+/*
+ * What an errand used to cost, and now what we suggest it should.
+ *
+ * Mirrors DEFAULT_DELIVERY_FEE_KOBO on the server, which is still the fallback
+ * when this field is not sent. Keeping the two in step matters: the number here
+ * is a promise about what a rider is likely to accept.
+ */
+const SUGGESTED_ERRAND_FEE = 1300;
 
 /** A picked image: local while it uploads, permanent URL once it lands. */
 type Photo = { localUri: string; url: string | null; failed: boolean; reason?: string | null };
@@ -29,6 +39,7 @@ export default function CreateErrand() {
   const [pickupName, setPickupName] = useState('');
   const [pickupAddress, setPickupAddress] = useState('');
   const [budget, setBudget] = useState('');
+  const [offer, setOffer] = useState(String(SUGGESTED_ERRAND_FEE));
 
   /**
    * The three camera tiles were decorative — a Pressable with no onPress, on a
@@ -49,6 +60,7 @@ export default function CreateErrand() {
     pickupName.trim().length >= 2 &&
     pickupAddress.trim().length >= 4 &&
     Boolean(activeAddress) &&
+    (Number(offer.replace(/[^0-9]/g, '')) || 0) >= MIN_OFFER_NAIRA &&
     !uploading;
 
   async function addPhotos() {
@@ -84,6 +96,7 @@ export default function CreateErrand() {
     if (!signedIn) return router.push('/signin');
 
     const budgetNaira = Number(budget.replace(/[^\d]/g, ''));
+    const offerNaira = Number(offer.replace(/[^\d]/g, '')) || SUGGESTED_ERRAND_FEE;
 
     createErrand.mutate(
       {
@@ -97,6 +110,7 @@ export default function CreateErrand() {
         // Only the ones that actually landed. A failed upload has no URL, and
         // posting its local file:// path would give the rider a broken image.
         photoUrls: photos.map((p) => p.url).filter((u): u is string => u !== null),
+        deliveryFeeKobo: offerNaira * 100,
       },
       {
         onSuccess: (order) =>
@@ -159,6 +173,16 @@ export default function CreateErrand() {
           // described the old flow: the guess was charged up front and
           // reconciled against a receipt afterwards. Nothing is held now.
           helper="Just a guess, so riders can judge the job. You're not charged this."
+        />
+
+        {/* Straight after the item guess, because the two numbers are easily
+            confused and reading them together is what separates them: one is
+            what the thing costs, the other is what the trip costs. */}
+        <DeliveryOfferInput
+          value={offer}
+          onChange={setOffer}
+          suggestedNaira={SUGGESTED_ERRAND_FEE}
+          hint="This is the rider's fee for going — separate from the price of the item."
         />
 
         <Text className="text-body text-[15px] mb-2.5">Add photos (optional)</Text>

@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
+import { DeliveryOfferInput, MIN_OFFER_NAIRA } from '@/components/DeliveryOfferInput';
 import { Card, Chip, Divider } from '@/components/ui/atoms';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -50,8 +51,22 @@ export default function SendPackage() {
   const dropName = dropoffName ?? activeAddress?.contact ?? '';
   const dropAddress = dropoffAddress ?? activeAddress?.line1 ?? '';
 
-  const price = PARCEL_SIZES.find((s) => s.id === size)?.price ?? 1300;
+  /*
+   * The size table is the suggestion now, not the price. The customer names
+   * what they will pay and riders can counter it, so this seeds the field
+   * rather than deciding the charge.
+   */
+  const suggested = PARCEL_SIZES.find((s) => s.id === size)?.price ?? 1300;
+  const [offer, setOffer] = useState(String(suggested));
+  const price = Number(offer.replace(/[^\d]/g, '')) || suggested;
   const isFragile = type === 'Fragile';
+
+  // Changing the parcel size re-suggests, unless the customer has already
+  // typed a number of their own — overwriting that would be rude.
+  const [touchedOffer, setTouchedOffer] = useState(false);
+  useEffect(() => {
+    if (!touchedOffer) setOffer(String(suggested));
+  }, [suggested, touchedOffer]);
 
   // Mirrors the server's zod schema so the CTA never offers a doomed submit.
   const canSubmit =
@@ -59,7 +74,8 @@ export default function SendPackage() {
     pickupAddress.trim().length >= 4 &&
     dropName.trim().length >= 2 &&
     dropAddress.trim().length >= 4 &&
-    dropoffPhone.replace(/\D/g, '').length >= 10;
+    dropoffPhone.replace(/\D/g, '').length >= 10 &&
+    price >= MIN_OFFER_NAIRA;
 
   const submit = () => {
     if (!signedIn) return router.push('/signin');
@@ -77,6 +93,7 @@ export default function SendPackage() {
         isFragile,
         ...(notes.trim() ? { notes: notes.trim() } : {}),
         ...(activeAddress ? { addressId: activeAddress.id } : {}),
+        deliveryFeeKobo: price * 100,
       },
       {
         onSuccess: (order) =>
@@ -175,6 +192,19 @@ export default function SendPackage() {
             );
           })}
         </ScrollView>
+
+        {/* Sits under the size picker because the size is what the suggestion
+            is derived from — the number moves when you change the parcel, and
+            seeing that happen explains where it came from. */}
+        <DeliveryOfferInput
+          value={offer}
+          onChange={(v) => {
+            setTouchedOffer(true);
+            setOffer(v);
+          }}
+          suggestedNaira={suggested}
+          hint={`We suggest ${naira(suggested)} for this size. Riders can accept it or ask for more.`}
+        />
 
         {/* contents */}
         <Text className="text-body text-[15px] mb-2.5">What are you sending?</Text>

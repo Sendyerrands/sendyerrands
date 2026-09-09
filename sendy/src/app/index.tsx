@@ -50,8 +50,18 @@ export default function Splash() {
             <SendyMark size={78} color={colors.white} />
           </View>
           {/* 34px, not 40: "Sendy Errands" is thirteen characters and wrapped
-              to two lines on a 360px-wide phone at the larger size. */}
-          <Text className="text-white text-[34px] font-display mt-6 tracking-tight text-center">
+              to two lines on a 360px-wide phone at the larger size.
+
+              numberOfLines is belt-and-braces against the same problem in the
+              other direction. _layout now holds the splash until the fonts
+              load, so this should always render in Plus Jakarta — but if that
+              times out, a narrow phone in the system font must shrink the name
+              rather than break it in half. */}
+          <Text
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            className="text-white text-[34px] font-display mt-6 tracking-tight text-center"
+          >
             Sendy Errands
           </Text>
           <Text className="text-white/80 text-[15px] mt-1">Send. Shop. Delivered.</Text>

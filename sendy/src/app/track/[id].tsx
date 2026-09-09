@@ -3,6 +3,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
 
+import { DeliveryBidsPanel } from '@/components/DeliveryBidsPanel';
 import { ErrandQuotePanel } from '@/components/ErrandQuotePanel';
 import { Badge, Card, Divider, Skeleton } from '@/components/ui/atoms';
 import { Button, IconButton } from '@/components/ui/Button';
@@ -243,6 +244,20 @@ export default function TrackOrder() {
               </Text>
             </Card>
           ) : null}
+
+          {/* Only while the job is still looking for a rider, and only on the
+              two pillars where the fee is negotiable. Renders nothing when no
+              rider has asked for more, which is most of the time. */}
+          <DeliveryBidsPanel
+            orderId={id}
+            active={
+              // `rider` is only populated once one is assigned, which is the
+              // same question as "is this still open" without adding a field.
+              !rider &&
+              ['ERRAND', 'PACKAGE'].includes(data?.raw.type ?? '') &&
+              ['QUOTE_REQUESTED', 'PLACED'].includes(status)
+            }
+          />
 
           {quoted && errand?.actualItemKobo ? (
             <View className="mt-4">

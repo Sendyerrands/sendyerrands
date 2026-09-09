@@ -1,14 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 
 import { Card, Divider, Skeleton } from '@/components/ui/atoms';
 import { Button, IconButton } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
 import { JOB_ROUTE, MapCanvas } from '@/components/ui/MapCanvas';
 import { Screen, StickyBar } from '@/components/ui/Screen';
 import { naira } from '@/lib/format';
 import { useQuery } from '@tanstack/react-query';
-import { useAcceptJob } from '@/lib/api/hooks';
+import { useAcceptJob, useSubmitBid } from '@/lib/api/hooks';
 import { riderApi } from '@/lib/api/endpoints';
 import { toRiderJob } from '@/lib/api/mappers';
 import { useApp } from '@/store/app';
@@ -20,6 +22,12 @@ export default function RiderJobDetail() {
   const router = useRouter();
   const { token } = useApp();
   const accept = useAcceptJob();
+  const bid = useSubmitBid(id!);
+
+  const [bidding, setBidding] = useState(false);
+  const [bidPrice, setBidPrice] = useState('');
+  const [bidNote, setBidNote] = useState('');
+  const bidNaira = Number(bidPrice.replace(/[^0-9]/g, '')) || 0;
   const { data } = useQuery({
     queryKey: ['rider-job', id],
     queryFn: async () => {
@@ -42,6 +50,10 @@ export default function RiderJobDetail() {
    */
   const mine = Boolean(data?.raw.riderId);
   const finished = ['DELIVERED', 'CANCELLED', 'REFUNDED'].includes(data?.raw.status ?? '');
+
+  // Only errands and packages have a fee that is between the customer and the
+  // rider; the others carry the vendor's own delivery charge.
+  const canBid = data?.raw.type === 'ERRAND' || data?.raw.type === 'PACKAGE';
 
   if (!job) {
     return (
@@ -160,21 +172,86 @@ export default function RiderJobDetail() {
               router.replace({ pathname: '/rider-active/[id]', params: { id: job.id } })
             }
           />
+        ) : bidding ? (
+          /*
+             Asking for more.
+
+             Deliberately behind a second tap rather than shown by default.
+             Accepting is the common case and has to stay one action — if the
+             price box were always on screen, every job would feel like a
+             negotiation and the board would slow to a crawl.
+          */
+          <View>
+            <Input
+              label={`Ask for more than ${naira(job.payout)}`}
+              value={bidPrice}
+              onChangeText={(v) => setBidPrice(v.replace(/[^\d]/g, ''))}
+              placeholder={String(Math.round(job.payout))}
+              prefix="₦"
+              keyboardType="number-pad"
+              helper="What you'd want to take this job. The customer decides."
+            />
+            <Input
+              label="Why (optional)"
+              value={bidNote}
+              onChangeText={setBidNote}
+              placeholder="It's across the bridge"
+            />
+
+            {bid.isError ? (
+              <Text className="text-error text-[13px] mb-3">
+                {bid.error instanceof Error ? bid.error.message : 'Could not send that offer.'}
+              </Text>
+            ) : null}
+
+            {bid.isSuccess ? (
+              <View className="bg-savings/10 rounded-md p-3 mb-3">
+                <Text className="text-body text-[13px]">
+                  Offer sent. You&apos;ll be told if they accept it — other riders can still take
+                  the job at the original price meanwhile.
+                </Text>
+              </View>
+            ) : null}
+
+            <Button
+              title={bid.isPending ? 'Sending…' : 'Send offer'}
+              loading={bid.isPending}
+              disabled={!bidNaira || bid.isPending}
+              onPress={() =>
+                bid.mutate({ priceKobo: bidNaira * 100, note: bidNote.trim() || undefined })
+              }
+            />
+            <View className="h-2" />
+            <Button title="Back" variant="text" onPress={() => setBidding(false)} />
+          </View>
         ) : (
-          <Button
-            title={accept.isPending ? 'Claiming…' : 'Accept & start pickup'}
-            iconRight="arrow-forward"
-            loading={accept.isPending}
-            // The job has to be claimed on the SERVER before the active screen
-            // opens. Navigating first showed a rider "DELIVERING" a job that was
-            // still on the open board for everyone else.
-            onPress={() =>
-              accept.mutate(job.id, {
-                onSuccess: () =>
-                  router.replace({ pathname: '/rider-active/[id]', params: { id: job.id } }),
-              })
-            }
-          />
+          <>
+            <Button
+              title={accept.isPending ? 'Claiming…' : `Accept — ${naira(job.payout)}`}
+              iconRight="arrow-forward"
+              loading={accept.isPending}
+              // The job has to be claimed on the SERVER before the active screen
+              // opens. Navigating first showed a rider "DELIVERING" a job that was
+              // still on the open board for everyone else.
+              onPress={() =>
+                accept.mutate(job.id, {
+                  onSuccess: () =>
+                    router.replace({ pathname: '/rider-active/[id]', params: { id: job.id } }),
+                })
+              }
+            />
+
+            {/* Only where the fee is negotiable. A food order's delivery fee
+                belongs to the vendor and was quoted to the customer at
+                checkout — offering to reprice it would be a button the server
+                refuses. */}
+            {canBid ? (
+              <>
+                <View className="h-2" />
+                <Button title="Ask for more" variant="text" onPress={() => setBidding(true)} />
+              </>
+            ) : null}
+          </>
         )}
       </StickyBar>
     </Screen>
