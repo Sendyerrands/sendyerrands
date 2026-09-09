@@ -1,14 +1,46 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useMutation } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 
+import { Divider } from '@/components/ui/atoms';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Screen, ScreenHeader, StickyBar } from '@/components/ui/Screen';
 import { ApiError } from '@/lib/api/client';
 import { authApi, type Actor } from '@/lib/api/endpoints';
+import { colors } from '@/lib/theme';
 import { useApp } from '@/store/app';
+
+/**
+ * The three front doors.
+ *
+ * Riders and vendors have their own apps behind the same sign-in screen, and
+ * until now the only route to them was through the customer app's Profile —
+ * which meant a rider needed a customer account before they could reach the
+ * one they actually wanted.
+ */
+const PORTALS = [
+  {
+    role: 'customer' as const,
+    label: 'Customer app',
+    hint: 'Order errands, packages and food',
+    icon: 'bag-handle-outline' as const,
+  },
+  {
+    role: 'rider' as const,
+    label: 'Sign in as a rider',
+    hint: 'Take jobs and get paid',
+    icon: 'bicycle-outline' as const,
+  },
+  {
+    role: 'vendor' as const,
+    label: 'Vendor portal',
+    hint: 'Manage your store and orders',
+    icon: 'business-outline' as const,
+  },
+];
 
 /**
  * Sign in — email and password.
@@ -49,7 +81,14 @@ export default function SignIn() {
     <Screen>
       <ScreenHeader onBack={() => router.replace('/onboarding')} />
 
-      <View className="px-4 pt-4">
+      {/* Scrolls now. The portal links added ~150px to a fixed-height screen,
+          which on a 360px phone with the keyboard up put them off the bottom
+          with no way to reach them. */}
+      <ScrollView
+        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 120 }}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
         <Text className="text-ink text-[28px] font-display leading-[34px]">Welcome back</Text>
         <Text className="text-body text-[15px] mt-2.5 mb-8 leading-[22px]">
           Sign in to your {label}.
@@ -122,7 +161,42 @@ export default function SignIn() {
             </Pressable>
           </View>
         )}
-      </View>
+
+        {/*
+          The other two portals, reachable without signing in to this one.
+
+          This screen already accepted a `role` and routed correctly after
+          sign-in, but nothing linked to it — a rider or vendor had to sign in
+          as a customer first and find the switch buried in Profile, which for
+          a rider means creating a customer account they do not want in order
+          to reach the app they do.
+
+          Shows the two roles you are not currently using, so the set is always
+          complete and never offers the screen you are already on.
+        */}
+        <Divider className="my-6" />
+
+        <Text className="text-muted text-[13px] font-semibold mb-2.5">SOMEWHERE ELSE?</Text>
+
+        {PORTALS.filter((p) => p.role !== actor).map((portal) => (
+          <Pressable
+            key={portal.role}
+            onPress={() => router.replace({ pathname: '/signin', params: { role: portal.role } })}
+            accessibilityRole="button"
+            accessibilityLabel={portal.label}
+            className="flex-row items-center py-3 active:opacity-60"
+          >
+            <View className="w-9 h-9 rounded-full bg-surface items-center justify-center mr-3">
+              <Ionicons name={portal.icon} size={17} color={colors.body} />
+            </View>
+            <View className="flex-1">
+              <Text className="text-ink text-[15px] font-medium">{portal.label}</Text>
+              <Text className="text-muted text-[13px] mt-0.5">{portal.hint}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={colors.muted} />
+          </Pressable>
+        ))}
+      </ScrollView>
 
       <StickyBar>
         <Button
