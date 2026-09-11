@@ -1,13 +1,13 @@
 /**
- * Public web pages, served from the same domain the app sends mail from.
+ * Outward links, in one place.
  *
- * These live on the marketing site (repo root `web/`) rather than as in-app
- * screens for a specific reason: Google Play requires the privacy policy and
- * the account-deletion route to be reachable **without installing the app**,
- * and the Play Console listing takes URLs, not screens. One copy on the web,
- * linked from here, keeps the app and the listing from drifting apart.
+ * These used to point at a static site in this repo, served from Render on the
+ * apex domain. That collided with the real sendyerrands.com website, so the
+ * site is gone and the legal pages are hosted wherever the website hosts them.
+ *
+ * They open in an in-app browser rather than handing off to Chrome — see
+ * `openInApp` below.
  */
-const SITE = 'https://sendyerrands.com';
 
 /**
  * The Zoho mailbox, in one place.
@@ -18,17 +18,30 @@ const SITE = 'https://sendyerrands.com';
  * real Zoho mailbox or alias — pointing it at anything else makes every
  * "Email us" button in the app a dead control.
  *
- * Change it here and the support screen, the legal pages' contact blocks and
- * the app's Reply-To all follow. The API keeps its own copy in EMAIL_REPLY_TO
- * because a server cannot import from the app; keep the two in step.
+ * The API keeps its own copy in EMAIL_REPLY_TO because a server cannot import
+ * from the app; keep the two in step.
  */
 const SUPPORT_EMAIL = 'support@sendyerrands.com';
 
+/**
+ * Legal pages, hosted on the main website.
+ *
+ * NOT YET SUPPLIED — set these to the real URLs before shipping. An empty
+ * string makes the row hide itself rather than open a blank browser sheet,
+ * which is the one behaviour worse than not having the link at all.
+ *
+ * Google Play needs the privacy URL for the listing, and separately needs an
+ * account-deletion page reachable without installing the app. If the website's
+ * privacy page does not describe deletion, that second URL still has to exist
+ * somewhere.
+ */
+export const legal = {
+  privacy: '',
+  terms: '',
+  deleteAccount: '',
+} as const;
+
 export const links = {
-  site: SITE,
-  privacy: `${SITE}/privacy.html`,
-  terms: `${SITE}/terms.html`,
-  deleteAccount: `${SITE}/delete-account.html`,
   supportEmail: SUPPORT_EMAIL,
   support: `mailto:${SUPPORT_EMAIL}`,
 } as const;

@@ -16,9 +16,12 @@ import { useApp } from '@/store/app';
  * Closing the account.
  *
  * Required by Google Play: an app that lets people create an account must let
- * them delete it from inside the app, not only by emailing support. The web
- * half, for people who have already uninstalled, is at
- * sendyerrands.com/delete-account.html.
+ * them delete it from inside the app, not only by emailing support.
+ *
+ * Play wants a second route as well, reachable WITHOUT installing — someone who
+ * has already uninstalled still has data with us. That used to be a page in
+ * this repo; the site is gone, so it has to live on the main website. Until it
+ * does, that half of the requirement is unmet.
  *
  * Its own screen rather than a dialog, for two reasons. What is kept and what
  * is removed does not fit in an alert, and putting it behind a deliberate

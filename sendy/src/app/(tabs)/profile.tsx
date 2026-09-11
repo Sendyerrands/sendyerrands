@@ -3,14 +3,15 @@ import Constants from 'expo-constants';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import * as Clipboard from 'expo-clipboard';
-import { Linking, Platform, Pressable, ScrollView, Share, Text, View } from 'react-native';
+import { Platform, Pressable, ScrollView, Share, Text, View } from 'react-native';
 
 import { Card, ListRow } from '@/components/ui/atoms';
 import { Button } from '@/components/ui/Button';
 import { Screen } from '@/components/ui/Screen';
 import { koboToNaira } from '@/lib/api/mappers';
 import { naira } from '@/lib/format';
-import { links } from '@/lib/links';
+import { legal, links } from '@/lib/links';
+import { openInApp } from '@/lib/open-in-app';
 import { colors } from '@/lib/theme';
 import { useApp } from '@/store/app';
 
@@ -23,7 +24,8 @@ import { useApp } from '@/store/app';
  * that does nothing.
  */
 async function shareCode(code: string) {
-  const message = `Use my Sendy Errands invite code ${code} when you sign up. ${links.site}`;
+  // No site URL any more — the code alone is what someone needs to type in.
+  const message = `Use my Sendy Errands invite code ${code} when you sign up on Sendy Errands.`;
 
   try {
     if (Platform.OS === 'web') {
@@ -259,23 +261,31 @@ export default function Profile() {
 
         {/* Legal has to be reachable from inside the app, not only from the
             Play listing — someone deciding whether to trust us with an address
-            and a card is doing it here, not in the store. Both open the same
-            pages the listing points at, so there is one copy to keep current. */}
+            and a card is doing it here, not in the store.
+
+            These open in an in-app browser rather than handing off to Chrome,
+            so reading the policy does not mean leaving Sendy and finding your
+            way back. Each row is hidden until its URL exists: a link that opens
+            a blank sheet is worse than no link. */}
         <Text className="text-muted text-[13px] font-semibold mt-6 mb-2.5 px-1">LEGAL</Text>
         <Card>
-          <ListRow
-            icon="shield-checkmark-outline"
-            label="Privacy Policy"
-            onPress={() => Linking.openURL(links.privacy)}
-          />
-          <ListRow
-            icon="document-text-outline"
-            label="Terms &amp; Conditions"
-            onPress={() => Linking.openURL(links.terms)}
-          />
+          {legal.privacy ? (
+            <ListRow
+              icon="shield-checkmark-outline"
+              label="Privacy Policy"
+              onPress={() => void openInApp(legal.privacy)}
+            />
+          ) : null}
+          {legal.terms ? (
+            <ListRow
+              icon="document-text-outline"
+              label="Terms &amp; Conditions"
+              onPress={() => void openInApp(legal.terms)}
+            />
+          ) : null}
           {/* Play requires this to be reachable in the app, not only by
-              emailing support — and the published policy says it lives exactly
-              here, so the two have to agree. */}
+              emailing support. It is a real screen rather than a web page, so
+              it works whatever happens to the website. */}
           <ListRow
             icon="trash-outline"
             label="Delete account"
