@@ -26,18 +26,19 @@ const SUPPORT_EMAIL = 'support@sendyerrands.com';
 /**
  * Legal pages, hosted on the main website.
  *
- * NOT YET SUPPLIED — set these to the real URLs before shipping. An empty
- * string makes the row hide itself rather than open a blank browser sheet,
- * which is the one behaviour worse than not having the link at all.
+ * Both verified live (200, real titles) on 2026-09-16 before being set here.
+ * An empty string makes the row hide itself rather than open a blank browser
+ * sheet, which is the one behaviour worse than not having the link at all —
+ * so if a page is ever taken down, blank it here rather than leaving a dead
+ * link in the app.
  *
- * Google Play needs the privacy URL for the listing, and separately needs an
- * account-deletion page reachable without installing the app. If the website's
- * privacy page does not describe deletion, that second URL still has to exist
- * somewhere.
+ * `deleteAccount` is still empty: Google Play wants a deletion route reachable
+ * WITHOUT installing the app, and the privacy page does not describe one yet.
+ * The in-app screen at /delete-account is unaffected.
  */
 export const legal = {
-  privacy: '',
-  terms: '',
+  privacy: 'https://sendyerrands.com/privacy.php',
+  terms: 'https://sendyerrands.com/terms.php',
   deleteAccount: '',
 } as const;
 
