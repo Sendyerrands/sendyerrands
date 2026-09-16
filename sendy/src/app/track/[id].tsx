@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { DeliveryBidsPanel } from '@/components/DeliveryBidsPanel';
+import { RiderHoursNotice } from '@/components/RiderHoursNotice';
 import { ErrandQuotePanel } from '@/components/ErrandQuotePanel';
 import { Badge, Card, Divider, Skeleton } from '@/components/ui/atoms';
 import { Button, IconButton } from '@/components/ui/Button';
@@ -243,6 +244,16 @@ export default function TrackOrder() {
                 seller&apos;s account. You haven&apos;t been charged anything.
               </Text>
             </Card>
+          ) : null}
+
+          {/* The one place a customer actually waits. "Finding you a rider" at
+              11pm with no explanation is nine hours of an app that looks
+              broken; the notice is what turns that into "riders are back at
+              8am". Compact during hours, since then it is not news. */}
+          {!rider && ['QUOTE_REQUESTED', 'PLACED'].includes(status) ? (
+            <View className="mt-4">
+              <RiderHoursNotice compact />
+            </View>
           ) : null}
 
           {/* Only while the job is still looking for a rider, and only on the

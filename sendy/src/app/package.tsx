@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 
 import { DeliveryOfferInput, MIN_OFFER_NAIRA } from '@/components/DeliveryOfferInput';
+import { RiderHoursNotice } from '@/components/RiderHoursNotice';
 import { Card, Chip, Divider } from '@/components/ui/atoms';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -130,6 +131,8 @@ export default function SendPackage() {
           </View>
           <Ionicons name="chevron-forward" size={16} color={colors.muted} />
         </Pressable>
+
+        <RiderHoursNotice />
 
         {/* route */}
         <Card className="p-4 mb-6">

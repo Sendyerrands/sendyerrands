@@ -6,7 +6,6 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 
 import { JobCard } from '@/components/JobCard';
 import { SectionHeader } from '@/components/ui/atoms';
-import { IconButton } from '@/components/ui/Button';
 import { Screen } from '@/components/ui/Screen';
 import { useRiderJobs, useRiderMe, useSetAvailability } from '@/lib/api/hooks';
 import { naira } from '@/lib/format';
@@ -26,7 +25,7 @@ export default function RiderHome() {
     zone: rider?.zone ?? 'your area',
     todayEarnings: rider?.todayEarnings ?? 0,
     todayTrips: rider?.todayTrips ?? 0,
-    onlineTime: rider?.completedJobs != null ? String(rider.completedJobs) : '—',
+    completed: rider?.completedJobs != null ? String(rider.completedJobs) : '—',
   };
 
   return (
@@ -43,7 +42,11 @@ export default function RiderHome() {
                 rider account this session belongs to. */}
             <Text className="text-muted text-[13px] mt-0.5">{rider?.phone ?? '—'}</Text>
           </View>
-          <IconButton icon="notifications-outline" badge accessibilityLabel="Notifications" />
+          {/* The bell is gone. It had badge hardcoded to true and no onPress —
+              a red dot promising unread news, over nothing, forever. Riders
+              have no notification feed yet: the Notification table is keyed
+              to customers. When one exists this is where it goes; until then
+              a control that lies is worse than the space it leaves. */}
         </View>
 
         <VerificationBanner status={rider?.status} onPress={() => router.push('/rider-verify')} />
@@ -100,7 +103,8 @@ export default function RiderHome() {
               <View className="w-px bg-white/25 mx-4" />
               <Metric value={`${RIDER.todayTrips}`} label="Trips" />
               <View className="w-px bg-white/25 mx-4" />
-              <Metric value={RIDER.onlineTime} label="Online" />
+              {/* Was labelled "Online" while showing the completed-jobs count. */}
+              <Metric value={RIDER.completed} label="Completed" />
             </View>
           </LinearGradient>
         </View>

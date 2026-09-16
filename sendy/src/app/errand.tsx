@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { DeliveryOfferInput, MIN_OFFER_NAIRA } from '@/components/DeliveryOfferInput';
+import { RiderHoursNotice } from '@/components/RiderHoursNotice';
 import { Button } from '@/components/ui/Button';
 import { Input, SelectField } from '@/components/ui/Input';
 import { Screen, ScreenHeader, StickyBar } from '@/components/ui/Screen';
@@ -124,6 +125,10 @@ export default function CreateErrand() {
       <ScreenHeader title="Create errand" />
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 150 }} showsVerticalScrollIndicator={false}>
+        {/* Before anything is typed: someone posting at 11pm should know it
+            sits until morning before they invest five minutes in the form. */}
+        <RiderHoursNotice />
+
         <Input
           label="What do you need done?"
           value={task}

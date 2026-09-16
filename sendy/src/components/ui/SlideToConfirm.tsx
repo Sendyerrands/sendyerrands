@@ -31,12 +31,19 @@ export function SlideToConfirm({
   label,
   onConfirm,
   disabled = false,
+  disabledLabel,
   pending = false,
   pendingLabel = 'Confirming…',
 }: {
   label: string;
   onConfirm: () => void;
   disabled?: boolean;
+  /**
+   * What the track says while disabled. Without it a dimmed track carrying
+   * the normal label reads as a slider that does not work, and gets reported
+   * as one — which is exactly what happened. The reason belongs on the control.
+   */
+  disabledLabel?: string;
   pending?: boolean;
   pendingLabel?: string;
 }) {
@@ -58,8 +65,18 @@ export function SlideToConfirm({
 
   const responder = useRef(
     PanResponder.create({
-      // Claim the gesture only once it is clearly horizontal, so the surrounding
-      // ScrollView keeps working when someone swipes up through the button.
+      /**
+       * Claim on touch-down, not only on the first horizontal move.
+       *
+       * With only onMoveShouldSetPanResponder, Android sometimes never delivers
+       * the move events to this view at all — a parent has already taken the
+       * touch by the time the knob asks for it — and the drag does nothing.
+       * Claiming at start is what makes it reliable there.
+       *
+       * Safe to do because the knob lives in a sticky bar outside any
+       * ScrollView, so there is no vertical scroll to steal from.
+       */
+      onStartShouldSetPanResponder: () => !lockedRef.current,
       onMoveShouldSetPanResponder: (_e, g) =>
         !lockedRef.current && Math.abs(g.dx) > 4 && Math.abs(g.dx) > Math.abs(g.dy),
       onPanResponderMove: (_e, g) => {
@@ -140,7 +157,7 @@ export function SlideToConfirm({
         style={{ opacity: labelOpacity }}
         className="text-white text-[15px] font-semibold text-center"
       >
-        {pending ? pendingLabel : label}
+        {pending ? pendingLabel : disabled && disabledLabel ? disabledLabel : label}
       </Animated.Text>
 
       <Animated.View

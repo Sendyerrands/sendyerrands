@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useMutation } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
@@ -9,6 +10,9 @@ import { Input } from '@/components/ui/Input';
 import { Screen, ScreenHeader, StickyBar } from '@/components/ui/Screen';
 import { ApiError } from '@/lib/api/client';
 import { authApi } from '@/lib/api/endpoints';
+import { legal } from '@/lib/links';
+import { openInApp } from '@/lib/open-in-app';
+import { colors } from '@/lib/theme';
 import { useApp } from '@/store/app';
 
 /**
@@ -49,6 +53,7 @@ export default function SignUp() {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [referral, setReferral] = useState('');
+  const [agreed, setAgreed] = useState(false);
   const [vehicle, setVehicle] = useState<Vehicle>('MOTORBIKE');
   const [plate, setPlate] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +65,8 @@ export default function SignUp() {
     email.trim().length > 3 &&
     phone.replace(/\D/g, '').length >= 10 &&
     password.length >= MIN_PASSWORD &&
-    (!needsPlate || plate.trim().length >= 4);
+    (!needsPlate || plate.trim().length >= 4) &&
+    agreed;
 
   const register = useMutation({
     mutationFn: () =>
@@ -174,6 +180,48 @@ export default function SignUp() {
             helper="If someone invited you, enter their code."
           />
         )}
+
+        {/*
+          Consent, as a real checkbox rather than the "by continuing you agree"
+          line under the button. That line is legally thin and, more to the
+          point, nobody reads it; a box that has to be ticked is a moment where
+          the person is at least told the documents exist. Both open in the
+          in-app browser so reading them does not mean losing the form.
+        */}
+        <Pressable
+          onPress={() => setAgreed((a) => !a)}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: agreed }}
+          accessibilityLabel="I agree to the Privacy Policy and Terms and Conditions"
+          className="flex-row items-start mt-2 mb-4 py-2"
+        >
+          <View
+            className={`w-[22px] h-[22px] rounded-md border-[1.5px] items-center justify-center mt-0.5 ${
+              agreed ? 'bg-pink-600 border-pink-600' : 'bg-white border-hairline'
+            }`}
+          >
+            {agreed ? <Ionicons name="checkmark" size={15} color={colors.white} /> : null}
+          </View>
+          <Text className="text-body text-[14px] ml-3 flex-1 leading-[20px]">
+            I agree to the{' '}
+            <Text
+              className="text-pink-600 font-semibold"
+              onPress={() => void openInApp(legal.privacy)}
+              accessibilityRole="link"
+            >
+              Privacy Policy
+            </Text>{' '}
+            and{' '}
+            <Text
+              className="text-pink-600 font-semibold"
+              onPress={() => void openInApp(legal.terms)}
+              accessibilityRole="link"
+            >
+              Terms &amp; Conditions
+            </Text>
+            .
+          </Text>
+        </Pressable>
 
         {error ? <Text className="text-error text-[13px]">{error}</Text> : null}
 

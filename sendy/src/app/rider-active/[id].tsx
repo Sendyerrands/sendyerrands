@@ -229,8 +229,14 @@ export default function RiderActiveDelivery() {
                 </Text>
                 <Text className="text-muted text-[13px] mt-1 leading-[18px]">
                   {/* Optional, and said so. A rider cannot always take a usable
-                      photo, and blocking handover on one would strand them. */}
-                  Optional. Confirm the 4-digit code from {job.dropoffName.split(' ')[0]} to finish.
+                      photo, and blocking handover on one would strand them.
+
+                      This line used to continue "Confirm the 4-digit code…" in
+                      the same breath, so the word Optional read as applying to
+                      the code as well. Riders skipped the code, found the slide
+                      inert, and reported the slider broken. The code has its
+                      own instruction now, next to the boxes. */}
+                  Optional — a photo of the handover helps if anything is disputed.
                 </Text>
               </View>
               {proof?.url ? (
@@ -242,7 +248,18 @@ export default function RiderActiveDelivery() {
           {/* code entry — only meaningful once the rider is at the door */}
           {atTheDoor ? (
             <>
-              <Pressable onPress={() => codeRef.current?.focus()} className="flex-row mt-4">
+              {/* Required, and says so, right above the boxes it applies to.
+                  The slide below is inert until all four digits are in, and a
+                  disabled control with no stated reason is indistinguishable
+                  from a broken one. */}
+              <Text className="text-ink text-[15px] font-semibold mt-5">
+                Enter {job.dropoffName.split(' ')[0]}&apos;s 4-digit code
+              </Text>
+              <Text className="text-muted text-[13px] mt-1 leading-[18px]">
+                Ask them for it. You can&apos;t confirm delivery without it.
+              </Text>
+
+              <Pressable onPress={() => codeRef.current?.focus()} className="flex-row mt-3">
                 <TextInput
                   ref={codeRef}
                   value={code}
@@ -288,6 +305,14 @@ export default function RiderActiveDelivery() {
           pendingLabel="Updating…"
           pending={updateStatus.isPending}
           disabled={atTheDoor && code.length < 4}
+          // The track itself says what is missing. A dimmed "Slide to confirm
+          // delivery" is a slider that looks broken; "Enter the code first" is
+          // an instruction.
+          disabledLabel={
+            atTheDoor && code.length < 4
+              ? `Enter the code first (${code.length}/4)`
+              : undefined
+          }
           onConfirm={advance}
         />
       </StickyBar>
