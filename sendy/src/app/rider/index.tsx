@@ -6,8 +6,9 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 
 import { JobCard } from '@/components/JobCard';
 import { SectionHeader } from '@/components/ui/atoms';
+import { IconButton } from '@/components/ui/Button';
 import { Screen } from '@/components/ui/Screen';
-import { useRiderJobs, useRiderMe, useSetAvailability } from '@/lib/api/hooks';
+import { useNotifications, useRiderJobs, useRiderMe, useSetAvailability } from '@/lib/api/hooks';
 import { naira } from '@/lib/format';
 import { colors } from '@/lib/theme';
 
@@ -17,6 +18,8 @@ export default function RiderHome() {
   const { data: rider } = useRiderMe();
   const { data: jobs = [] } = useRiderJobs();
   const setAvailability = useSetAvailability();
+  const { data: notifications } = useNotifications();
+  const unread = notifications?.unread ?? 0;
   const online = rider?.isOnline ?? false;
   const approved = rider?.status === 'APPROVED';
   const RIDER = {
@@ -42,11 +45,16 @@ export default function RiderHome() {
                 rider account this session belongs to. */}
             <Text className="text-muted text-[13px] mt-0.5">{rider?.phone ?? '—'}</Text>
           </View>
-          {/* The bell is gone. It had badge hardcoded to true and no onPress —
-              a red dot promising unread news, over nothing, forever. Riders
-              have no notification feed yet: the Notification table is keyed
-              to customers. When one exists this is where it goes; until then
-              a control that lies is worse than the space it leaves. */}
+          {/* Back, and real. The previous bell had badge hardcoded to true and
+              no onPress. This one counts unread rider notifications — an offer
+              accepted, a seller paid, a job cancelled under them — and opens
+              the list. */}
+          <IconButton
+            icon="notifications-outline"
+            accessibilityLabel={unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'}
+            badge={unread > 0}
+            onPress={() => router.push('/notifications')}
+          />
         </View>
 
         <VerificationBanner status={rider?.status} onPress={() => router.push('/rider-verify')} />

@@ -4,7 +4,7 @@ import { env } from '@/config/env';
 import { badRequest, conflict, notFound } from '@/lib/errors';
 import { formatNaira, riderPayout } from '@/lib/money';
 import { prisma } from '@/lib/prisma';
-import { notify } from '@/services/notifications';
+import { notify, notifyRider } from '@/services/notifications';
 import { transitionOrder } from '@/services/orders';
 
 type Tx = Prisma.TransactionClient | PrismaClient;
@@ -152,11 +152,37 @@ export async function acceptBid(input: { orderId: string; customerId: string; bi
       data: { status: 'ACCEPTED' },
     });
 
+    /*
+     * The winner is told first. Without this a rider who countered has no way
+     * of knowing the customer said yes short of noticing a job appear in their
+     * deliveries — which is the whole reason the rider bell exists.
+     */
+    await notifyRider(tx, {
+      riderId: bid.riderId,
+      title: 'Your offer was accepted',
+      body: `The customer accepted ${formatNaira(bid.priceKobo)} for ${bid.order.reference}. Head to the pickup.`,
+      orderId: bid.orderId,
+    });
+
     // Everyone else is told, rather than left refreshing a job that is gone.
+    const losers = await tx.deliveryBid.findMany({
+      where: { orderId: bid.orderId, id: { not: bid.id }, status: 'PENDING' },
+      select: { riderId: true },
+    });
+
     await tx.deliveryBid.updateMany({
       where: { orderId: bid.orderId, id: { not: bid.id }, status: 'PENDING' },
       data: { status: 'DECLINED' },
     });
+
+    for (const loser of losers) {
+      await notifyRider(tx, {
+        riderId: loser.riderId,
+        title: 'Job went to another rider',
+        body: `${bid.order.reference} was taken at a different price. There'll be more.`,
+        orderId: bid.orderId,
+      });
+    }
 
     await transitionOrder(bid.orderId, 'RIDER_ASSIGNED', { type: 'customer', id: input.customerId }, { tx });
 

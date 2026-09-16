@@ -350,6 +350,17 @@ export const riderApi = {
   withdrawBid: (orderId: string, token: string) =>
     api.del<{ withdrawn: true }>(`/rider/jobs/${orderId}/bid`, token),
 
+  /** Same shape as the customer's, so one screen serves both. */
+  notifications: (token: string) =>
+    api.get<{ items: ApiNotification[]; unread: number }>('/rider/notifications', token),
+
+  markNotificationsRead: (token: string, id?: string) =>
+    api.post<{ marked: number; unread: number }>(
+      '/rider/notifications/read',
+      id ? { id } : {},
+      token
+    ),
+
   /** Asks the bank who owns an account, without storing anything. */
   resolveAccount: (bankCode: string, accountNumber: string, token: string) =>
     api.post<{ accountNumber: string; accountName: string }>(

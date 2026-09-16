@@ -85,6 +85,40 @@ export async function notify(
   });
 }
 
+export async function notifyRider(
+  tx: Tx,
+  input: { riderId: string; title: string; body: string; orderId?: string }
+) {
+  await tx.notification.create({
+    data: {
+      riderId: input.riderId,
+      title: input.title,
+      body: input.body,
+      orderId: input.orderId,
+    },
+  });
+}
+
+/**
+ * The rider's side of the same transitions — fewer of them, and different.
+ *
+ * A rider does not need telling about statuses they caused. What they need is
+ * the moments where the customer did something and it is now the rider's turn:
+ * the seller has been paid so go and collect, or the job they are driving to
+ * has been cancelled underneath them. That second one matters most — a rider
+ * mid-trip to a cancelled order is the case that costs someone real fuel.
+ */
+const RIDER_COPY: Partial<Record<OrderStatus, { title: string; body: (ref: string) => string }>> = {
+  MERCHANT_PAID: {
+    title: 'Customer has paid the seller',
+    body: (ref) => `${ref} is paid for. Collect the item and confirm when you have it.`,
+  },
+  CANCELLED: {
+    title: 'Job cancelled',
+    body: (ref) => `${ref} was cancelled by the customer. You don't need to continue.`,
+  },
+};
+
 /**
  * Called from transitionOrder, inside its transaction.
  *
@@ -95,23 +129,46 @@ export async function notify(
  */
 export async function notifyOrderStatus(
   tx: Tx,
-  order: { id: string; reference: string; customerId: string; status: OrderStatus }
+  order: {
+    id: string;
+    reference: string;
+    customerId: string;
+    riderId?: string | null;
+    status: OrderStatus;
+  }
 ) {
   const copy = COPY[order.status];
-  if (!copy) return;
+  if (copy) {
+    try {
+      await notify(tx, {
+        userId: order.customerId,
+        title: copy.title,
+        body: copy.body(order.reference),
+        orderId: order.id,
+      });
+    } catch (cause) {
+      console.error(
+        `[notifications] could not record ${order.status} for ${order.reference}:`,
+        cause instanceof Error ? cause.message : cause
+      );
+    }
+  }
 
-  try {
-    await notify(tx, {
-      userId: order.customerId,
-      title: copy.title,
-      body: copy.body(order.reference),
-      orderId: order.id,
-    });
-  } catch (cause) {
-    console.error(
-      `[notifications] could not record ${order.status} for ${order.reference}:`,
-      cause instanceof Error ? cause.message : cause
-    );
+  const riderCopy = RIDER_COPY[order.status];
+  if (riderCopy && order.riderId) {
+    try {
+      await notifyRider(tx, {
+        riderId: order.riderId,
+        title: riderCopy.title,
+        body: riderCopy.body(order.reference),
+        orderId: order.id,
+      });
+    } catch (cause) {
+      console.error(
+        `[notifications] could not record ${order.status} for rider on ${order.reference}:`,
+        cause instanceof Error ? cause.message : cause
+      );
+    }
   }
 }
 
@@ -150,4 +207,8 @@ export async function notifyOrderPlaced(
 /** Unread count for the bell badge. */
 export function unreadCount(userId: string) {
   return prisma.notification.count({ where: { userId, readAt: null } });
+}
+
+export function riderUnreadCount(riderId: string) {
+  return prisma.notification.count({ where: { riderId, readAt: null } });
 }

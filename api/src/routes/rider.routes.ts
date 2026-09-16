@@ -715,3 +715,47 @@ riderRouter.delete(
     res.json({ data: { withdrawn: true } });
   })
 );
+
+/**
+ * GET /rider/notifications — the rider's bell.
+ *
+ * Same shape as the customer's, so the two screens can share a component:
+ * list plus unread count in one response, so the badge cannot disagree with
+ * the list it sits above.
+ */
+riderRouter.get(
+  '/notifications',
+  asyncHandler(async (req, res) => {
+    const riderId = req.auth!.id;
+
+    const [items, unread] = await Promise.all([
+      prisma.notification.findMany({
+        where: { riderId },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      }),
+      prisma.notification.count({ where: { riderId, readAt: null } }),
+    ]);
+
+    res.json({ data: { items, unread } });
+  })
+);
+
+/** POST /rider/notifications/read — one by id, or all. */
+riderRouter.post(
+  '/notifications/read',
+  validate(z.object({ id: z.string().min(1).optional() })),
+  asyncHandler(async (req, res) => {
+    const riderId = req.auth!.id;
+    const { id } = req.body as { id?: string };
+
+    const { count } = await prisma.notification.updateMany({
+      where: { riderId, readAt: null, ...(id ? { id } : {}) },
+      data: { readAt: new Date() },
+    });
+
+    const unread = await prisma.notification.count({ where: { riderId, readAt: null } });
+
+    res.json({ data: { marked: count, unread } });
+  })
+);

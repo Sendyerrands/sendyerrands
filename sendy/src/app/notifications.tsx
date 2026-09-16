@@ -22,7 +22,7 @@ import { useApp } from '@/store/app';
  */
 export default function Notifications() {
   const router = useRouter();
-  const { signedIn } = useApp();
+  const { signedIn, actor } = useApp();
   const { data, isLoading, isError, error, refetch } = useNotifications();
   const markRead = useMarkNotificationsRead();
 
@@ -76,7 +76,11 @@ export default function Notifications() {
             <EmptyState
               icon="notifications-outline"
               title="Nothing yet"
-              body="When you place an order, updates about it show up here."
+              body={
+                actor === 'rider'
+                  ? 'When a customer accepts your offer or pays for a job, you’ll hear about it here.'
+                  : 'When you place an order, updates about it show up here.'
+              }
             />
           </View>
         ) : (
@@ -90,10 +94,16 @@ export default function Notifications() {
                     // Only tappable when it points somewhere. A row that looks
                     // interactive and goes nowhere is the thing this screen
                     // exists to stop.
+                    // Same row, different destination: a rider's order lives
+                    // on the active-delivery screen, a customer's on tracking.
                     onPress={
                       n.orderId
                         ? () =>
-                            router.push({ pathname: '/track/[id]', params: { id: n.orderId! } })
+                            router.push(
+                              actor === 'rider'
+                                ? { pathname: '/rider-active/[id]', params: { id: n.orderId! } }
+                                : { pathname: '/track/[id]', params: { id: n.orderId! } }
+                            )
                         : undefined
                     }
                     accessibilityRole={n.orderId ? 'button' : 'text'}

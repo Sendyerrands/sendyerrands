@@ -211,11 +211,12 @@ model Rider {
   createdAt             DateTime     @default(now())
   updatedAt             DateTime     @updatedAt
 
-  documents    RiderDocument[]
-  orders       Order[]
-  earnings     RiderEarning[]
-  payouts      Payout[]
-  deliveryBids DeliveryBid[]
+  documents     RiderDocument[]
+  orders        Order[]
+  earnings      RiderEarning[]
+  payouts       Payout[]
+  deliveryBids  DeliveryBid[]
+  notifications Notification[]
 
   @@index([isOnline, status])
   @@map("riders")
@@ -495,7 +496,12 @@ enum DeliveryBidStatus {
 /// told this person" cannot be recomputed from order state alone.
 model Notification {
   id      String  @id @default(cuid())
-  userId  String
+  /// Exactly one of these is set. Customers and riders are different tables,
+  /// and a rider needs telling about different things — that their offer won,
+  /// that the customer has paid the seller, that the job they are driving to
+  /// was cancelled — so the row carries whichever party it is for.
+  userId  String?
+  riderId String?
   /// Reserved for the day this carries more than order updates.
   type    String  @default("ORDER")
   title   String
@@ -506,10 +512,12 @@ model Notification {
   readAt    DateTime?
   createdAt DateTime  @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user  User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rider Rider? @relation(fields: [riderId], references: [id], onDelete: Cascade)
 
-  /// The unread badge and the list both read by user, newest first.
+  /// The unread badge and the list both read by recipient, newest first.
   @@index([userId, createdAt])
+  @@index([riderId, createdAt])
   @@map("notifications")
 }
 
