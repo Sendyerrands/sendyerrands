@@ -24,22 +24,26 @@
 const SUPPORT_EMAIL = 'support@sendyerrands.com';
 
 /**
- * Legal pages, hosted on the main website.
+ * Legal pages, on their own Vercel deployment.
  *
- * Both verified live (200, real titles) on 2026-09-16 before being set here.
- * An empty string makes the row hide itself rather than open a blank browser
- * sheet, which is the one behaviour worse than not having the link at all —
- * so if a page is ever taken down, blank it here rather than leaving a dead
- * link in the app.
+ * Source: github.com/Sendyerrands/sendytermsandprivacy. Kept apart from the
+ * marketing site on purpose — the Play Console listing and this app both point
+ * at these URLs, and they have to stay up and stay accurate whatever happens
+ * to sendyerrands.com. The .php pages there were briefly used and lacked the
+ * deletion section Play requires.
  *
- * `deleteAccount` is still empty: Google Play wants a deletion route reachable
- * WITHOUT installing the app, and the privacy page does not describe one yet.
- * The in-app screen at /delete-account is unaffected.
+ * All three verified live (200, correct titles, deletion section present, no
+ * placeholders) on 2026-09-18 before being set. An empty string hides the row
+ * rather than opening a blank browser sheet — if a page is ever taken down,
+ * blank it here rather than leave a dead link.
  */
+const LEGAL_SITE = 'https://sendytermsandprivacy.vercel.app';
+
 export const legal = {
-  privacy: 'https://sendyerrands.com/privacy.php',
-  terms: 'https://sendyerrands.com/terms.php',
-  deleteAccount: '',
+  privacy: `${LEGAL_SITE}/privacy.html`,
+  terms: `${LEGAL_SITE}/terms.html`,
+  /** Reachable without the app — the second half of Play's deletion rule. */
+  deleteAccount: `${LEGAL_SITE}/delete-account.html`,
 } as const;
 
 export const links = {
