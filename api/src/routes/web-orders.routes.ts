@@ -26,16 +26,37 @@ import { asyncHandler, validate, webBookingLimiter } from '@/middleware';
  */
 export const webOrdersRouter = Router();
 
+/**
+ * An HTML form submits every field it has, so an untouched optional input
+ * arrives as `""` rather than being absent. Zod's `.optional()` means "may be
+ * undefined", not "may be empty" — so a booking from someone who skipped the
+ * optional email field was rejected outright with "Invalid email".
+ *
+ * Blank is how a form says nothing, so blank is read as nothing here.
+ */
+const blankAsAbsent = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? undefined : v), schema.optional());
+
 const bookingSchema = z.object({
   name: z.string().trim().min(2).max(160),
   phone: z.string().trim().min(10).max(20),
-  altPhone: z.string().trim().min(10).max(20).optional(),
-  email: z.string().trim().email().max(190).optional(),
+  altPhone: blankAsAbsent(z.string().trim().min(10).max(20)),
+  email: blankAsAbsent(z.string().trim().email().max(190)),
   /// One of the website's service categories, e.g. "Market Shopping".
   service: z.string().trim().min(2).max(80),
-  pickupAddress: z.string().trim().min(4).max(240),
-  dropoffAddress: z.string().trim().min(4).max(240),
-  details: z.string().trim().max(1000).optional(),
+  /**
+   * One character, not four.
+   *
+   * The website's own form has no minimum, so a four-character floor here
+   * rejected a booking the form had already accepted — and the customer saw
+   * "we could not submit your booking", which names nothing they could fix.
+   * A short address is a quality problem for the dispatcher to sort out on
+   * WhatsApp, which happens on every booking anyway; a lost booking is not
+   * recoverable. Matching the form is what keeps the two from disagreeing.
+   */
+  pickupAddress: z.string().trim().min(1).max(240),
+  dropoffAddress: z.string().trim().min(1).max(240),
+  details: blankAsAbsent(z.string().trim().max(1000)),
   /**
    * Optional, and the caller decides what it means. The website derives one
    * per booking so that a form resubmitted after a timeout resolves to the
@@ -43,7 +64,7 @@ const bookingSchema = z.object({
    * request is treated as new every time — which is the old behaviour, and
    * still correct for a caller that can tell whether its request landed.
    */
-  idempotencyKey: z.string().trim().min(8).max(200).optional(),
+  idempotencyKey: blankAsAbsent(z.string().trim().min(8).max(200)),
 });
 
 type Booking = z.infer<typeof bookingSchema>;
