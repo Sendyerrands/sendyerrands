@@ -74,6 +74,15 @@ enum OrderType {
   PACKAGE
 }
 
+/// Where the order came in from. The app was the only channel until the
+/// website's booking form started posting here too, and the two need telling
+/// apart in the admin dashboard — a web booking has no logged-in customer
+/// behind it, just a phone number someone typed.
+enum OrderChannel {
+  APP
+  WEB
+}
+
 enum OrderStatus {
   /// Errands only. Posted with an estimate, unpaid, visible to every rider.
   /// The price is not knowable until someone stands in the market and looks,
@@ -124,6 +133,11 @@ enum PaymentProvider {
   PAYSTACK
   WALLET
   CASH
+  /// Money landed in the company account and someone in ops confirmed it. The
+  /// website's customers pay this way or in cash, so without it every offline
+  /// naira had to be filed as CASH and the two could not be told apart when
+  /// reconciling against a bank statement.
+  BANK_TRANSFER
 }
 
 enum PaymentStatus {
@@ -173,6 +187,8 @@ model User {
   notifications      Notification[]
   orders             Order[]
   requests           MarketplaceRequest[]
+  reviews            Review[]
+  supportRequests    SupportRequest[]
   walletTxns         WalletTransaction[]
   vendorApplications VendorApplication[]
 
@@ -217,6 +233,7 @@ model Rider {
   payouts       Payout[]
   deliveryBids  DeliveryBid[]
   notifications Notification[]
+  reviews       Review[]
 
   @@index([isOnline, status])
   @@map("riders")
@@ -247,6 +264,8 @@ model Admin {
   role         AdminRole @default(OPERATIONS)
   isActive     Boolean   @default(true)
   createdAt    DateTime  @default(now())
+
+  paymentsRecorded Payment[]
 
   @@map("admins")
 }
@@ -371,10 +390,20 @@ model Product {
 // ─────────────────────────────────────────────── orders
 
 model Order {
-  id         String      @id @default(cuid())
-  reference  String      @unique // "SND-8841"
+  id         String       @id @default(cuid())
+  reference  String       @unique // "SND-8841"
   type       OrderType
-  status     OrderStatus @default(PENDING_PAYMENT)
+  // Defaulted so every existing row reads APP without a backfill, and so the
+  // app's own create paths keep working untouched.
+  channel    OrderChannel @default(APP)
+  /// Set only by the website's booking endpoint. A client that times out
+  /// waiting for a reply has no way of knowing whether the order was created,
+  /// and the customer's natural response is to submit again — so the same key
+  /// arriving twice returns the original order instead of creating a sibling.
+  /// Nullable and unique: Postgres allows any number of NULLs in a unique
+  /// index, so every existing and app-created order is unaffected.
+  idempotencyKey String?   @unique
+  status     OrderStatus  @default(PENDING_PAYMENT)
   customerId String
   vendorId   String?
   riderId    String?
@@ -412,8 +441,10 @@ model Order {
   payments      Payment[]
   errandDetail  ErrandDetail?
   packageDetail PackageDetail?
-  request       MarketplaceRequest?
-  earning       RiderEarning?
+  request         MarketplaceRequest?
+  review          Review?
+  supportRequests SupportRequest[]
+  earning         RiderEarning?
   deliveryBids  DeliveryBid[]
 
   @@index([customerId, status])
@@ -664,9 +695,23 @@ model Payment {
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
-  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  /// Who in ops confirmed the money arrived. Null for anything a gateway
+  /// created, which is how a gateway payment is told apart from a hand-entered
+  /// one. Cash and transfers have no external record to check against, so the
+  /// only control on "this was received" is knowing whose word it is.
+  recordedByAdminId String?
+  /// Free text from whoever recorded it — a transfer reference, who handed the
+  /// cash over, why the amount differs from the order total.
+  note              String?
+
+  order       Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  /// SetNull, not Cascade: a staff member leaving must not delete the record of
+  /// money the company took.
+  recordedBy  Admin? @relation(fields: [recordedByAdminId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
+  // The payments ledger reads newest-first, optionally filtered by status.
+  @@index([status, createdAt])
   @@map("payments")
 }
 
@@ -830,4 +875,168 @@ model Favourite {
   @@unique([userId, vendorId])
   @@index([userId])
   @@map("favourites")
+}
+
+/// ---------------------------------------------------------------------------
+/// Service catalogue and pricing.
+///
+/// Migrated out of the PHP site's MySQL, where it was the last thing binding
+/// the public booking form to that database — book.php read this catalogue on
+/// every page load to render the service picker and its prices.
+/// ---------------------------------------------------------------------------
+model Service {
+  id String @id @default(cuid())
+
+  /// Stable identifier used in URLs and by the website's booking form
+  /// ("market-shopping"). Renaming a service must not change this.
+  slug             String  @unique
+  name             String
+  shortDescription String?
+  description      String?
+  /// An icon *name*, resolved by whichever front-end renders it, rather than a
+  /// path — so the app and the website can each draw it in their own set.
+  icon             String?
+  /// Kobo, like every other money column here. MySQL stored this as DECIMAL
+  /// naira; carrying that over would have put two money formats in one schema.
+  baseFeeKobo      Int     @default(0)
+  isActive         Boolean @default(true)
+  /// Position in the picker. Services get reordered, so this is not the id.
+  sortOrder        Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  pricingRules PricingRule[]
+
+  @@index([isActive, sortOrder])
+  @@map("services")
+}
+
+enum PricingRuleType {
+  PER_KM
+  PER_KG
+  WAITING_TIME
+  URGENCY_MULTIPLIER
+  FLAT_FEE
+}
+
+/// Carried over from the PHP support form, because a customer picking
+/// "Refund request" tells ops more than a subject line does.
+enum SupportCategory {
+  ORDER_ISSUE
+  MISSING_ITEM
+  DELIVERY_PROBLEM
+  REFUND_REQUEST
+  PAYMENT_ISSUE
+  GENERAL
+}
+
+enum SupportStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+}
+
+/// A support request from the website — deliberately not a ticket thread.
+///
+/// The PHP site had threaded tickets with replies, and used them twice. Support
+/// actually happens on WhatsApp and in the Zoho inbox that holds the root MX
+/// for the domain. So this records what came in and lets ops track whether it
+/// has been dealt with, rather than rebuilding a messaging product nobody used.
+/// There is no reply here on purpose: answering happens where the customer
+/// already is.
+model SupportRequest {
+  id        String @id @default(cuid())
+  reference String @unique
+
+  /// Both optional: someone can ask for help without an account, and not every
+  /// question is about a specific errand.
+  userId  String?
+  orderId String?
+
+  name     String
+  email    String?
+  phone    String?
+  subject  String
+  category SupportCategory @default(GENERAL)
+  message  String
+
+  status SupportStatus @default(OPEN)
+  /// Set the first time ops opens it, so "nobody has looked at this yet" is
+  /// visible at a glance rather than inferred from the status.
+  readAt DateTime?
+  /// Where ops records what was done, since the conversation itself lives in
+  /// WhatsApp or the mailbox.
+  internalNote String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  order Order? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@map("support_requests")
+}
+
+/// Reviews are moderated, not published on arrival: they appear on the public
+/// site, so a complaint written in anger or an abusive comment should not be
+/// live before anyone has read it. PENDING is the default for that reason.
+enum ReviewStatus {
+  PENDING
+  PUBLISHED
+  HIDDEN
+}
+
+model Review {
+  id String @id @default(cuid())
+
+  /// One review per order — the unique constraint is the rule, not a hint.
+  orderId    String  @unique
+  customerId String
+  /// Nullable, and set null rather than cascading if the rider leaves: the
+  /// customer's review of the service outlives any one rider's account.
+  riderId    String?
+
+  /// 1–5. Overall is required; the other two are optional because the old form
+  /// let people rate the service without judging the rider individually.
+  overallRating Int
+  riderRating   Int?
+  serviceRating Int?
+
+  comment String?
+  status  ReviewStatus @default(PENDING)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order    Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  customer User   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  rider    Rider? @relation(fields: [riderId], references: [id], onDelete: SetNull)
+
+  /// The moderation queue is read newest-first, filtered by status.
+  @@index([status, createdAt])
+  @@index([riderId])
+  @@map("reviews")
+}
+
+model PricingRule {
+  id        String          @id @default(cuid())
+  serviceId String
+  type      PricingRuleType
+  label     String
+  /// Decimal rather than kobo, deliberately: what this number means depends on
+  /// `type`. It is a naira rate for PER_KM and FLAT_FEE, but a bare multiplier
+  /// (1.5) for URGENCY_MULTIPLIER. One integer kobo column cannot hold both
+  /// without lying about one of them.
+  value     Decimal         @db.Decimal(10, 2)
+  isActive  Boolean         @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@index([serviceId])
+  @@map("pricing_rules")
 }

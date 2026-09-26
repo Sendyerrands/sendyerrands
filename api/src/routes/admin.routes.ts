@@ -22,6 +22,25 @@ import {
 
 export const adminRouter = Router();
 
+/**
+ * Phone numbers are stored E.164 ("+2348031234567") and nobody in Lagos types
+ * them that way — a customer's number arrives as "0803 123 4567" in a WhatsApp
+ * message. Searching for what ops actually pastes has to match both, so a local
+ * 0-prefixed number is also tried as its +234 equivalent, and vice versa.
+ *
+ * Returns every form worth trying, including the original.
+ */
+function phoneVariants(q: string): string[] {
+  const digits = q.replace(/[\s()-]/g, '');
+  const forms = new Set([q, digits]);
+
+  if (/^0\d{6,}$/.test(digits)) forms.add(`+234${digits.slice(1)}`);
+  if (/^234\d{6,}$/.test(digits)) forms.add(`+${digits}`);
+  if (/^\+?234\d{6,}$/.test(digits)) forms.add(`0${digits.replace(/^\+?234/, '')}`);
+
+  return [...forms].filter(Boolean);
+}
+
 /** POST /admin/login — email + password (admins don't use OTP). */
 adminRouter.post(
   '/login',
@@ -150,13 +169,32 @@ adminRouter.get(
   asyncHandler(async (req, res) => {
     const status = req.query.status as string | undefined;
     const type = req.query.type as string | undefined;
+    const channel = req.query.channel as string | undefined;
     const q = req.query.q as string | undefined;
 
     const orders = await prisma.order.findMany({
       where: {
         ...(status ? { status: status as never } : {}),
         ...(type ? { type: type as never } : {}),
-        ...(q ? { reference: { contains: q, mode: 'insensitive' } } : {}),
+        // Filtering here rather than in the dashboard because this query is
+        // capped at 100 rows: narrowing after the fact would quietly mean
+        // "web orders among the last 100", not "the last 100 web orders".
+        ...(channel ? { channel: channel as never } : {}),
+        /**
+         * Reference or customer. Ops is usually working from a phone number a
+         * customer just sent on WhatsApp, not from a reference they would have
+         * to be told first — and the Customers page links here by phone.
+         */
+        ...(q
+          ? {
+              OR: [
+                { reference: { contains: q, mode: 'insensitive' as const } },
+                ...phoneVariants(q).map((p) => ({ customer: { phone: { contains: p } } })),
+                { customer: { firstName: { contains: q, mode: 'insensitive' as const } } },
+                { customer: { lastName: { contains: q, mode: 'insensitive' as const } } },
+              ],
+            }
+          : {}),
       },
       include: {
         customer: { select: { firstName: true, lastName: true, phone: true } },
@@ -184,7 +222,8 @@ adminRouter.get(
         address: true,
         items: true,
         events: { orderBy: { createdAt: 'asc' } },
-        payments: true,
+        // recordedBy so the drawer can say whose word it is that cash arrived.
+        payments: { include: { recordedBy: { select: { name: true } } } },
         errandDetail: true,
         packageDetail: true,
       },
@@ -800,5 +839,618 @@ adminRouter.post(
     console.warn(`[admin] password reset for ${role} ${email} by admin ${req.auth!.id}`);
 
     res.json({ data: { email, role, name, password } });
+  })
+);
+
+/* ---------------------------------------------------------------------------
+ * Service catalogue
+ *
+ * Replaces the PHP admin's services.php and pricing.php. Both the website's
+ * booking form and this dashboard now read one catalogue, instead of the form
+ * reading MySQL and the dashboard knowing nothing about services at all.
+ * ------------------------------------------------------------------------- */
+
+/** GET /admin/services — the catalogue, inactive ones included. */
+adminRouter.get(
+  '/services',
+  asyncHandler(async (_req, res) => {
+    const services = await prisma.service.findMany({
+      orderBy: { sortOrder: 'asc' },
+      include: { pricingRules: { orderBy: { type: 'asc' } } },
+    });
+    res.json({ data: services });
+  })
+);
+
+const serviceBody = z.object({
+  name: z.string().trim().min(2).max(120),
+  shortDescription: z.string().trim().max(255).optional(),
+  description: z.string().trim().max(4000).optional(),
+  icon: z.string().trim().max(60).optional(),
+  /** Kobo, like every other money field. The dashboard converts from naira. */
+  baseFeeKobo: z.number().int().min(0),
+  isActive: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).max(999).optional(),
+});
+
+/** POST /admin/services */
+adminRouter.post(
+  '/services',
+  validate(serviceBody.extend({ slug: z.string().trim().regex(/^[a-z0-9-]+$/).min(2).max(60) })),
+  asyncHandler(async (req, res) => {
+    const body = req.body as z.infer<typeof serviceBody> & { slug: string };
+
+    const clash = await prisma.service.findUnique({ where: { slug: body.slug }, select: { id: true } });
+    if (clash) throw conflict('A service with that slug already exists.');
+
+    const service = await prisma.service.create({ data: body });
+    res.status(201).json({ data: service });
+  })
+);
+
+/**
+ * PATCH /admin/services/:id
+ *
+ * The slug is deliberately not editable. It is what the website's URLs and the
+ * booking form use to refer to a service, so changing it silently breaks every
+ * existing link and any order that recorded it. Renaming is what `name` is for.
+ */
+adminRouter.patch(
+  '/services/:id',
+  validate(serviceBody.partial()),
+  asyncHandler(async (req, res) => {
+    const existing = await prisma.service.findUnique({ where: { id: req.params.id! }, select: { id: true } });
+    if (!existing) throw notFound('Service');
+
+    const service = await prisma.service.update({
+      where: { id: req.params.id! },
+      data: req.body as Partial<z.infer<typeof serviceBody>>,
+      include: { pricingRules: true },
+    });
+    res.json({ data: service });
+  })
+);
+
+/**
+ * PUT /admin/services/:id/rules — replace a service's pricing rules.
+ *
+ * Replace rather than patch: the rules are a short list read as a set, and
+ * editing them individually means the dashboard has to track which rows were
+ * removed. Sending the whole list makes "what you see is what is stored" true.
+ */
+adminRouter.put(
+  '/services/:id/rules',
+  validate(
+    z.object({
+      rules: z
+        .array(
+          z.object({
+            type: z.enum(['PER_KM', 'PER_KG', 'WAITING_TIME', 'URGENCY_MULTIPLIER', 'FLAT_FEE']),
+            label: z.string().trim().min(2).max(120),
+            /** A string, so a decimal survives the trip without a float rounding it. */
+            value: z.string().regex(/^\d{1,8}(\.\d{1,2})?$/),
+            isActive: z.boolean().optional(),
+          })
+        )
+        .max(20),
+    })
+  ),
+  asyncHandler(async (req, res) => {
+    const serviceId = req.params.id!;
+    const { rules } = req.body as {
+      rules: { type: never; label: string; value: string; isActive?: boolean }[];
+    };
+
+    const service = await prisma.service.findUnique({ where: { id: serviceId }, select: { id: true } });
+    if (!service) throw notFound('Service');
+
+    // One transaction, so a failure halfway cannot leave a service with no
+    // pricing rules at all.
+    await prisma.$transaction([
+      prisma.pricingRule.deleteMany({ where: { serviceId } }),
+      prisma.pricingRule.createMany({ data: rules.map((r) => ({ ...r, serviceId })) }),
+    ]);
+
+    const updated = await prisma.service.findUnique({
+      where: { id: serviceId },
+      include: { pricingRules: { orderBy: { type: 'asc' } } },
+    });
+    res.json({ data: updated });
+  })
+);
+
+/* ---------------------------------------------------------------------------
+ * Support requests
+ *
+ * Replaces the PHP admin's support.php. Not a ticket thread: the reply happens
+ * on WhatsApp or in the mailbox, so this is a queue of what came in and whether
+ * it has been dealt with.
+ * ------------------------------------------------------------------------- */
+
+/** GET /admin/support?status=OPEN — newest first, with unread counts. */
+adminRouter.get(
+  '/support',
+  asyncHandler(async (req, res) => {
+    const status = req.query.status as string | undefined;
+
+    const requests = await prisma.supportRequest.findMany({
+      where: { ...(status ? { status: status as never } : {}) },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+      include: {
+        order: { select: { reference: true } },
+        user: { select: { firstName: true, lastName: true, phone: true } },
+      },
+    });
+
+    const grouped = await prisma.supportRequest.groupBy({ by: ['status'], _count: true });
+    const counts = { OPEN: 0, IN_PROGRESS: 0, RESOLVED: 0 } as Record<string, number>;
+    for (const g of grouped) counts[g.status] = g._count;
+
+    // "Nobody has looked at this yet" is worth surfacing separately from status:
+    // an OPEN request someone has read is in a different state to a new one.
+    const unread = await prisma.supportRequest.count({ where: { readAt: null } });
+
+    res.json({ data: { requests, counts, unread } });
+  })
+);
+
+/**
+ * PATCH /admin/support/:id — move it along, or record what was done.
+ *
+ * Opening a request marks it read. There is no reply field because there is no
+ * reply channel here; internalNote is for ops to record the outcome.
+ */
+adminRouter.patch(
+  '/support/:id',
+  validate(
+    z.object({
+      status: z.enum(['OPEN', 'IN_PROGRESS', 'RESOLVED']).optional(),
+      internalNote: z.string().trim().max(2000).optional(),
+      markRead: z.boolean().optional(),
+    })
+  ),
+  asyncHandler(async (req, res) => {
+    const body = req.body as { status?: never; internalNote?: string; markRead?: boolean };
+
+    const existing = await prisma.supportRequest.findUnique({
+      where: { id: req.params.id! },
+      select: { id: true, readAt: true },
+    });
+    if (!existing) throw notFound('Support request');
+
+    const request = await prisma.supportRequest.update({
+      where: { id: req.params.id! },
+      data: {
+        ...(body.status ? { status: body.status } : {}),
+        ...(body.internalNote !== undefined ? { internalNote: body.internalNote } : {}),
+        // Read is a one-way flag: once someone has seen it, it is seen.
+        ...(body.markRead && !existing.readAt ? { readAt: new Date() } : {}),
+      },
+      include: {
+        order: { select: { reference: true } },
+        user: { select: { firstName: true, lastName: true, phone: true } },
+      },
+    });
+
+    res.json({ data: request });
+  })
+);
+
+/* ---------------------------------------------------------------------------
+ * Reviews
+ *
+ * A moderation queue, replacing the PHP admin's reviews.php. Reviews appear on
+ * the public site, so nothing is published until someone has read it.
+ * ------------------------------------------------------------------------- */
+
+/** GET /admin/reviews?status=PENDING — newest first. */
+adminRouter.get(
+  '/reviews',
+  asyncHandler(async (req, res) => {
+    const status = req.query.status as string | undefined;
+
+    const reviews = await prisma.review.findMany({
+      where: { ...(status ? { status: status as never } : {}) },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+      include: {
+        order: { select: { reference: true, type: true, channel: true } },
+        customer: { select: { firstName: true, lastName: true } },
+        rider: { select: { firstName: true, lastName: true } },
+      },
+    });
+
+    // Counts for the filter tabs, so the queue shows how much is waiting
+    // without a second request.
+    const grouped = await prisma.review.groupBy({ by: ['status'], _count: true });
+    const counts = { PENDING: 0, PUBLISHED: 0, HIDDEN: 0 } as Record<string, number>;
+    for (const g of grouped) counts[g.status] = g._count;
+
+    res.json({ data: { reviews, counts } });
+  })
+);
+
+/**
+ * PATCH /admin/reviews/:id — publish, hide, or return to the queue.
+ *
+ * Only the status is editable. An admin correcting a customer's words would be
+ * publishing something the customer did not write under their name, so the
+ * rating and comment are read-only here by design.
+ */
+adminRouter.patch(
+  '/reviews/:id',
+  validate(z.object({ status: z.enum(['PENDING', 'PUBLISHED', 'HIDDEN']) })),
+  asyncHandler(async (req, res) => {
+    const { status } = req.body as { status: 'PENDING' | 'PUBLISHED' | 'HIDDEN' };
+
+    const existing = await prisma.review.findUnique({ where: { id: req.params.id! }, select: { id: true } });
+    if (!existing) throw notFound('Review');
+
+    const review = await prisma.review.update({
+      where: { id: req.params.id! },
+      data: { status },
+      include: {
+        order: { select: { reference: true } },
+        customer: { select: { firstName: true, lastName: true } },
+        rider: { select: { firstName: true, lastName: true } },
+      },
+    });
+
+    console.warn(`[admin] review ${review.id} set to ${status} by admin ${req.auth!.id}`);
+    res.json({ data: review });
+  })
+);
+
+/* ---------------------------------------------------------------------------
+ * Customers
+ *
+ * Replaces the PHP admin's customers.php. Read-only: everything here is already
+ * editable where it belongs — a wallet moves through refunds, an account is
+ * disabled on the user's own record — and a customer list that can rewrite
+ * people's details is a list that can quietly rewrite a dispute.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Website bookings mint a User keyed on phone, synthesising an address on the
+ * reserved `.invalid` TLD when the form collected none. Showing that to ops
+ * would look like an inbox they could write to.
+ */
+const PLACEHOLDER_EMAIL = /@web\.sendyerrands\.invalid$/i;
+
+/** GET /admin/customers?q= — newest first, searchable by name, phone or email. */
+adminRouter.get(
+  '/customers',
+  asyncHandler(async (req, res) => {
+    const q = (req.query.q as string | undefined)?.trim();
+
+    /**
+     * Names are stored split, so a search for "Adaeze Okafor" matches neither
+     * column on its own. Two tokens are also tried as first + last, which is
+     * what anyone typing a full name means.
+     */
+    const [first, ...rest] = (q ?? '').split(/\s+/).filter(Boolean);
+    const last = rest.join(' ');
+
+    const where = q
+      ? {
+          OR: [
+            { firstName: { contains: q, mode: 'insensitive' as const } },
+            { lastName: { contains: q, mode: 'insensitive' as const } },
+            ...phoneVariants(q).map((p) => ({ phone: { contains: p } })),
+            { email: { contains: q, mode: 'insensitive' as const } },
+            ...(last
+              ? [
+                  {
+                    AND: [
+                      { firstName: { contains: first!, mode: 'insensitive' as const } },
+                      { lastName: { contains: last, mode: 'insensitive' as const } },
+                    ],
+                  },
+                ]
+              : []),
+          ],
+        }
+      : {};
+
+    const users = await prisma.user.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+        walletBalanceKobo: true,
+        isActive: true,
+        createdAt: true,
+        _count: { select: { orders: true, supportRequests: true } },
+      },
+    });
+
+    const ids = users.map((u) => u.id);
+
+    const [spend, activity] = await Promise.all([
+      /**
+       * Spend is what was collected, not what was ordered: an order placed and
+       * never paid for is not money this customer has spent. Summed from
+       * payments for that reason, and REFUNDED ones are excluded by the status
+       * filter, so refunding an order takes it back out of the total.
+       */
+      ids.length
+        ? prisma.payment.findMany({
+            where: { status: 'SUCCESS', order: { customerId: { in: ids } } },
+            select: { amountKobo: true, order: { select: { customerId: true } } },
+          })
+        : Promise.resolve([]),
+      // Which channels they order through, and when they last did.
+      ids.length
+        ? prisma.order.groupBy({
+            by: ['customerId', 'channel'],
+            where: { customerId: { in: ids } },
+            _max: { createdAt: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const spentByCustomer = new Map<string, number>();
+    for (const p of spend) {
+      const key = p.order.customerId;
+      spentByCustomer.set(key, (spentByCustomer.get(key) ?? 0) + p.amountKobo);
+    }
+
+    const channelsByCustomer = new Map<string, Set<string>>();
+    const lastOrderByCustomer = new Map<string, Date>();
+    for (const row of activity) {
+      const set = channelsByCustomer.get(row.customerId) ?? new Set<string>();
+      set.add(row.channel);
+      channelsByCustomer.set(row.customerId, set);
+
+      const at = row._max.createdAt;
+      const seen = lastOrderByCustomer.get(row.customerId);
+      if (at && (!seen || at > seen)) lastOrderByCustomer.set(row.customerId, at);
+    }
+
+    const customers = users.map((u) => ({
+      ...u,
+      // Null rather than the placeholder: there is no address to write to.
+      email: u.email && PLACEHOLDER_EMAIL.test(u.email) ? null : u.email,
+      totalSpentKobo: spentByCustomer.get(u.id) ?? 0,
+      lastOrderAt: lastOrderByCustomer.get(u.id) ?? null,
+      /**
+       * Empty for someone who has never ordered. ["WEB"] alone means the record
+       * was created by a website booking and has never been signed into — there
+       * is no usable password on it, so "send them a reset link" is not
+       * something ops should be offered.
+       */
+      channels: [...(channelsByCustomer.get(u.id) ?? [])].sort(),
+    }));
+
+    res.json({ data: customers });
+  })
+);
+
+/* ---------------------------------------------------------------------------
+ * Payments
+ *
+ * Money in, kept separate from rider payouts, which are money out. Both are
+ * "payments" in casual speech, and netting them into one figure is how a
+ * business convinces itself it is profitable.
+ *
+ * Sendy takes most of its money offline — cash at the door, or a transfer into
+ * the company account — so a row here is usually a record of something a human
+ * confirmed rather than something a gateway reported.
+ * ------------------------------------------------------------------------- */
+
+/** GET /admin/payments?status=SUCCESS — the ledger, the totals, and who owes. */
+adminRouter.get(
+  '/payments',
+  asyncHandler(async (req, res) => {
+    const status = req.query.status as string | undefined;
+
+    const [payments, grouped, unpaid] = await Promise.all([
+      prisma.payment.findMany({
+        where: status ? { status: status as never } : {},
+        orderBy: { createdAt: 'desc' },
+        take: 200,
+        include: {
+          order: {
+            select: {
+              id: true,
+              reference: true,
+              channel: true,
+              totalKobo: true,
+              customer: { select: { firstName: true, lastName: true, phone: true } },
+            },
+          },
+          recordedBy: { select: { name: true } },
+        },
+      }),
+      // Totals span every payment ever, not just the page being listed.
+      prisma.payment.groupBy({ by: ['status'], _sum: { amountKobo: true }, _count: true }),
+      /**
+       * Delivered, with nothing recorded as received. This is the list ops acts
+       * on, and it is why the page exists: in a cash business the risk is not a
+       * failed charge, it is a delivery nobody ever collected for.
+       *
+       * Oldest first — the longest unpaid is the least likely to be recovered.
+       */
+      prisma.order.findMany({
+        where: { status: 'DELIVERED', payments: { none: { status: 'SUCCESS' } } },
+        orderBy: { deliveredAt: 'asc' },
+        take: 100,
+        select: {
+          id: true,
+          reference: true,
+          channel: true,
+          totalKobo: true,
+          deliveredAt: true,
+          customer: { select: { firstName: true, lastName: true, phone: true } },
+          rider: { select: { firstName: true, lastName: true } },
+        },
+      }),
+    ]);
+
+    const totals: Record<string, number> = { SUCCESS: 0, PENDING: 0, FAILED: 0, REFUNDED: 0 };
+    const counts: Record<string, number> = { SUCCESS: 0, PENDING: 0, FAILED: 0, REFUNDED: 0 };
+    for (const g of grouped) {
+      totals[g.status] = g._sum.amountKobo ?? 0;
+      counts[g.status] = g._count;
+    }
+
+    res.json({
+      data: {
+        payments,
+        totals,
+        counts,
+        unpaid,
+        unpaidTotalKobo: unpaid.reduce((sum, o) => sum + o.totalKobo, 0),
+      },
+    });
+  })
+);
+
+/**
+ * POST /admin/orders/:id/payment — record money that arrived offline.
+ *
+ * Restricted to OPERATIONS and SUPERADMIN, like releasing a payout. Marking an
+ * order paid is not a status change, it is an assertion that cash was handed
+ * over; support staff can read the ledger and cannot write to it.
+ *
+ * Nothing here contacts a gateway. It exists because the money already moved.
+ */
+adminRouter.post(
+  '/orders/:id/payment',
+  validate(
+    z.object({
+      provider: z.enum(['CASH', 'BANK_TRANSFER']),
+      // Omitted means "the rest of what this order is worth", which is what ops
+      // means nearly every time.
+      amountKobo: z.number().int().min(1).optional(),
+      reference: z.string().trim().max(120).optional(),
+      note: z.string().trim().max(300).optional(),
+    })
+  ),
+  asyncHandler(async (req, res) => {
+    const orderId = req.params.id!;
+    const body = req.body as {
+      provider: 'CASH' | 'BANK_TRANSFER';
+      amountKobo?: number;
+      reference?: string;
+      note?: string;
+    };
+
+    const admin = await prisma.admin.findUnique({
+      where: { id: req.auth!.id },
+      select: { id: true, role: true },
+    });
+    if (admin?.role !== 'OPERATIONS' && admin?.role !== 'SUPERADMIN') {
+      throw forbidden('Only operations staff can record a payment.');
+    }
+
+    const naira = (kobo: number) => `₦${(kobo / 100).toLocaleString('en-NG')}`;
+
+    const result = await prisma.$transaction(async (tx) => {
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        select: {
+          id: true,
+          reference: true,
+          status: true,
+          totalKobo: true,
+          payments: { where: { status: 'SUCCESS' }, select: { amountKobo: true } },
+        },
+      });
+      if (!order) throw notFound('Order');
+
+      /**
+       * A web errand is booked before anyone knows what it costs, so it sits at
+       * a total of zero until it is quoted. Collecting against it would record
+       * money with nothing to reconcile it to — and the generic guard below
+       * would have said "already paid in full (₦0)", which is nonsense.
+       */
+      if (order.totalKobo <= 0) {
+        throw badRequest(
+          `${order.reference} has no price on it yet, so there is nothing to collect. Quote it first.`
+        );
+      }
+
+      const alreadyPaidKobo = order.payments.reduce((sum, p) => sum + p.amountKobo, 0);
+      const remainingKobo = order.totalKobo - alreadyPaidKobo;
+
+      /**
+       * Refuse rather than add a second payment to a settled order. The PHP
+       * admin kept one row per order for this reason; allowing several, because
+       * part-payments are real, means the guard has to live here instead.
+       */
+      if (remainingKobo <= 0) {
+        throw conflict(`${order.reference} is already paid in full (${naira(alreadyPaidKobo)}).`);
+      }
+
+      const amountKobo = body.amountKobo ?? remainingKobo;
+      if (amountKobo > remainingKobo) {
+        throw badRequest(
+          `That is more than ${order.reference} still owes — ${naira(remainingKobo)} outstanding.`
+        );
+      }
+
+      const payment = await tx.payment.create({
+        data: {
+          orderId,
+          provider: body.provider,
+          // Manual records need a unique reference too. A transfer reference is
+          // the useful one where there is one; otherwise generate a traceable
+          // internal one rather than leaving it blank.
+          reference: body.reference || `MAN-${randomBytes(5).toString('hex').toUpperCase()}`,
+          amountKobo,
+          status: 'SUCCESS',
+          paidAt: new Date(),
+          recordedByAdminId: admin.id,
+          note: body.note ?? null,
+        },
+      });
+
+      const fullyPaid = alreadyPaidKobo + amountKobo >= order.totalKobo;
+
+      /**
+       * Always leave a mark on the order's own timeline. A status change alone
+       * would not: an order past PENDING_PAYMENT does not move when it is paid,
+       * so without this the money would show in the ledger and nowhere on the
+       * order the customer is calling about.
+       */
+      await tx.orderEvent.create({
+        data: {
+          orderId,
+          status: order.status,
+          label: fullyPaid ? 'Payment received' : 'Part payment received',
+          note: [
+            `${naira(amountKobo)} by ${body.provider === 'CASH' ? 'cash' : 'bank transfer'}`,
+            body.note,
+          ]
+            .filter(Boolean)
+            .join(' — '),
+          actorType: 'admin',
+          actorId: admin.id,
+        },
+      });
+
+      /**
+       * Only PENDING_PAYMENT is waiting on this. A web errand sits at
+       * QUOTE_REQUESTED and is priced before anyone pays, so paying it must not
+       * shove it down the app's paid-up-front lane.
+       */
+      if (fullyPaid && order.status === 'PENDING_PAYMENT') {
+        await transitionOrder(orderId, 'PLACED', { type: 'admin', id: admin.id }, { tx });
+      }
+
+      return { payment, fullyPaid, outstandingKobo: remainingKobo - amountKobo };
+    });
+
+    console.warn(
+      `[admin] payment ${result.payment.reference} of ${result.payment.amountKobo} kobo recorded on ${orderId} by admin ${admin.id}`
+    );
+    res.status(201).json({ data: result });
   })
 );

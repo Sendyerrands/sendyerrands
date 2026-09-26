@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { PageHeader } from '@/components/Layout';
@@ -6,7 +6,7 @@ import { OrderDrawer } from '@/components/OrderDrawer';
 import { Card, EmptyState, ErrorState, Loading, StatusPill, inputClass } from '@/components/ui';
 import { dateTime, fullName, humanise, naira } from '@/lib/format';
 import { useOrders } from '@/lib/hooks';
-import type { OrderStatus, OrderType } from '@/lib/types';
+import type { OrderChannel, OrderStatus, OrderType } from '@/lib/types';
 
 const STATUSES: OrderStatus[] = [
   'PENDING_PAYMENT',
@@ -22,16 +22,40 @@ const STATUSES: OrderStatus[] = [
 
 const TYPES: OrderType[] = ['FOOD', 'PACKAGE', 'ERRAND', 'MARKETPLACE'];
 
-export function Orders() {
-  const [status, setStatus] = useState('');
-  const [type, setType] = useState('');
-  const [q, setQ] = useState('');
+/**
+ * "Website" rather than "Web": ops read this column to know where a customer
+ * came from and how to reach them back. A website booking has no app account
+ * behind it — the customer record was minted from the phone number they typed,
+ * so WhatsApp is the only way to reach them.
+ */
+const CHANNEL_LABEL: Record<OrderChannel, string> = {
+  APP: 'App',
+  WEB: 'Website',
+};
 
-  // Deep link from the dashboard: /orders?open=<id>
+const CHANNELS: OrderChannel[] = ['APP', 'WEB'];
+
+export function Orders() {
+  // Deep links: /orders?open=<id> from the dashboard, ?q=<phone> from Customers.
   const [params, setParams] = useSearchParams();
   const openId = params.get('open');
 
-  const { data, isLoading, isError, error, refetch } = useOrders({ status, type, q });
+  const [status, setStatus] = useState('');
+  const [type, setType] = useState('');
+  const [channel, setChannel] = useState('');
+  const [q, setQ] = useState(params.get('q') ?? '');
+
+  /**
+   * Follow ?q= when it changes. The initial state covers arriving here, but
+   * React Router keeps this component mounted between two links to it, so
+   * without this the second link from Customers would quietly do nothing.
+   */
+  const linkedQuery = params.get('q');
+  useEffect(() => {
+    if (linkedQuery !== null) setQ(linkedQuery);
+  }, [linkedQuery]);
+
+  const { data, isLoading, isError, error, refetch } = useOrders({ status, type, channel, q });
 
   const closeDrawer = () => {
     params.delete('open');
@@ -49,12 +73,12 @@ export function Orders() {
         <div className="mb-4 flex flex-wrap items-end gap-3">
           <label className="block">
             <span className="mb-1.5 block text-[12px] font-semibold uppercase tracking-wide text-muted">
-              Search reference
+              Search
             </span>
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="SND-8841"
+              placeholder="SND-8841 or 0803…"
               className={`${inputClass} w-56`}
             />
           </label>
@@ -95,11 +119,30 @@ export function Orders() {
             </select>
           </label>
 
-          {status || type || q ? (
+          <label className="block">
+            <span className="mb-1.5 block text-[12px] font-semibold uppercase tracking-wide text-muted">
+              Source
+            </span>
+            <select
+              value={channel}
+              onChange={(e) => setChannel(e.target.value)}
+              className={`${inputClass} w-40`}
+            >
+              <option value="">All sources</option>
+              {CHANNELS.map((c) => (
+                <option key={c} value={c}>
+                  {CHANNEL_LABEL[c]}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {status || type || channel || q ? (
             <button
               onClick={() => {
                 setStatus('');
                 setType('');
+                setChannel('');
                 setQ('');
               }}
               className="h-10 text-[13px] font-semibold text-pink-600 hover:underline"
@@ -123,6 +166,7 @@ export function Orders() {
                 <tr className="border-b border-hairline text-left text-[12px] uppercase tracking-wide text-muted">
                   <th className="px-5 py-3 font-semibold">Reference</th>
                   <th className="px-5 py-3 font-semibold">Type</th>
+                  <th className="px-5 py-3 font-semibold">Source</th>
                   <th className="px-5 py-3 font-semibold">Customer</th>
                   <th className="px-5 py-3 font-semibold">Vendor</th>
                   <th className="px-5 py-3 font-semibold">Rider</th>
@@ -140,6 +184,18 @@ export function Orders() {
                   >
                     <td className="px-5 py-3 font-semibold text-pink-600">{o.reference}</td>
                     <td className="px-5 py-3 text-body">{humanise(o.type)}</td>
+                    {/* Deliberately quieter than the status pill beside it.
+                        Status is the column ops act on; source is context, and
+                        a second coloured pill would dilute the first. Website
+                        orders carry the emphasis because they are the ones with
+                        no app account behind them. */}
+                    <td className="px-5 py-3">
+                      {o.channel === 'WEB' ? (
+                        <span className="font-semibold text-body">{CHANNEL_LABEL.WEB}</span>
+                      ) : (
+                        <span className="text-muted">{CHANNEL_LABEL.APP}</span>
+                      )}
+                    </td>
                     <td className="px-5 py-3 text-body">{fullName(o.customer)}</td>
                     <td className="px-5 py-3 text-body">{o.vendor?.name ?? '—'}</td>
                     <td className="px-5 py-3 text-body">

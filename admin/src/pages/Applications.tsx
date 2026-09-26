@@ -14,7 +14,7 @@ const TABS: { label: string; value: VendorApplicationStatus | undefined }[] = [
 ];
 
 const TONES: Record<VendorApplicationStatus, string> = {
-  PENDING: 'bg-savings/10 text-savings',
+  PENDING: 'bg-warning/10 text-warning',
   APPROVED: 'bg-success/10 text-success',
   REJECTED: 'bg-error/10 text-error',
 };

@@ -10,8 +10,13 @@ import { Orders } from '@/pages/Orders';
 import { Requests } from '@/pages/Requests';
 import { Riders } from '@/pages/Riders';
 import { Applications } from '@/pages/Applications';
+import { Customers } from '@/pages/Customers';
 import { PasswordReset } from '@/pages/PasswordReset';
+import { Payments } from '@/pages/Payments';
 import { Payouts } from '@/pages/Payouts';
+import { Reviews } from '@/pages/Reviews';
+import { Services } from '@/pages/Services';
+import { Support } from '@/pages/Support';
 import { Vendors } from '@/pages/Vendors';
 
 /**
@@ -51,6 +56,11 @@ function Shell() {
       <Route element={<Layout />}>
         <Route path="/" element={<Dashboard />} />
         <Route path="/orders" element={<Orders />} />
+        <Route path="/customers" element={<Customers />} />
+        <Route path="/payments" element={<Payments />} />
+        <Route path="/services" element={<Services />} />
+        <Route path="/reviews" element={<Reviews />} />
+        <Route path="/support" element={<Support />} />
         <Route path="/riders" element={<Riders />} />
         <Route path="/requests" element={<Requests />} />
         <Route path="/vendors" element={<Vendors />} />

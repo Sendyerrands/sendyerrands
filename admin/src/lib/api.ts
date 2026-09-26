@@ -32,7 +32,7 @@ export class UnauthorizedError extends ApiError {
 }
 
 type RequestOptions = {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
   /** Login is the one call that must not send (or require) a token. */
   auth?: boolean;

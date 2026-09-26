@@ -6,14 +6,24 @@ import logo from '@/assets/logo.png';
 import { useAuth } from '@/lib/auth';
 import { useDashboard } from '@/lib/hooks';
 
+/**
+ * Grouped by what ops is doing, not alphabetically. "Payments" (money in) sits
+ * next to "Payouts" (money out) deliberately — they are easy to confuse, and
+ * seeing them as two rows is the point.
+ */
 const NAV = [
   { to: '/', label: 'Dashboard', end: true },
   { to: '/orders', label: 'Orders' },
+  { to: '/customers', label: 'Customers' },
+  { to: '/support', label: 'Support' },
+  { to: '/reviews', label: 'Reviews' },
   { to: '/riders', label: 'Riders' },
   { to: '/requests', label: 'Requests' },
   { to: '/vendors', label: 'Vendors' },
   { to: '/applications', label: 'Applications' },
+  { to: '/payments', label: 'Payments' },
   { to: '/payouts', label: 'Payouts' },
+  { to: '/services', label: 'Services' },
   { to: '/password-reset', label: 'Password reset' },
 ] as const;
 

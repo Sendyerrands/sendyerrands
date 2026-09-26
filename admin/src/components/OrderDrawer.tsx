@@ -131,11 +131,16 @@ function Body({
         {order.payments.length > 0 ? (
           <ul className="mt-3 space-y-1">
             {order.payments.map((p) => (
-              <li key={p.id} className="flex justify-between text-[13px]">
-                <span className="text-body">
-                  {humanise(p.method)} · {humanise(p.status)}
+              <li key={p.id} className="flex justify-between gap-3 text-[13px]">
+                <span className="min-w-0 text-body">
+                  {humanise(p.provider)} · {humanise(p.status)}
+                  {/* Cash and transfers have no external record to check, so the
+                      only control on "this arrived" is whose word it is. */}
+                  {p.recordedBy ? (
+                    <span className="text-muted"> · recorded by {p.recordedBy.name}</span>
+                  ) : null}
                 </span>
-                <span className="num text-muted">{naira(p.amountKobo)}</span>
+                <span className="num whitespace-nowrap text-muted">{naira(p.amountKobo)}</span>
               </li>
             ))}
           </ul>

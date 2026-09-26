@@ -89,6 +89,31 @@ export const apiLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+/**
+ * The website's booking form is unauthenticated — anyone who can reach the page
+ * can create an order, and each one mints a customer record behind it. That is
+ * the point (no account needed to book), and also the exposure, so it gets a
+ * tighter limit than the general API.
+ *
+ * Deliberately generous per hour rather than per minute: a real person booking
+ * two errands back to back must not be blocked, while a script filling the
+ * orders table is. Kept on the loose side because Nigerian mobile networks put
+ * a lot of genuine users behind very few addresses, so an aggressive IP limit
+ * would lock out real customers long before it inconvenienced anyone.
+ */
+export const webBookingLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: env.isProd ? 15 : 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    error: {
+      code: 'TOO_MANY_REQUESTS',
+      message: 'Too many booking attempts from this connection. Try again shortly, or send us a message on WhatsApp.',
+    },
+  },
+});
+
 export function notFoundHandler(req: Request, res: Response) {
   res.status(404).json({
     error: { code: 'NOT_FOUND', message: `Cannot ${req.method} ${req.path}` },

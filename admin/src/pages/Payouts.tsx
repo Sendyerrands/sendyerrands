@@ -19,7 +19,7 @@ import type { PayoutDue, PayoutStatus } from '@/lib/types';
 
 const TONES: Record<PayoutStatus, string> = {
   PENDING: 'bg-muted/15 text-muted',
-  PROCESSING: 'bg-savings/10 text-savings',
+  PROCESSING: 'bg-info/10 text-info',
   SUCCESS: 'bg-success/10 text-success',
   FAILED: 'bg-error/10 text-error',
   REVERSED: 'bg-error/10 text-error',

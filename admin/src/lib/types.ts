@@ -20,6 +20,92 @@ export type OrderStatus =
 
 export type OrderType = 'FOOD' | 'PACKAGE' | 'ERRAND' | 'MARKETPLACE';
 
+/** Where an order came in from. WEB orders are booked on the website, with no
+ *  account behind them — the customer record is minted from their phone. */
+export type OrderChannel = 'APP' | 'WEB';
+
+export type SupportStatus = 'OPEN' | 'IN_PROGRESS' | 'RESOLVED';
+
+export type SupportCategory =
+  | 'ORDER_ISSUE'
+  | 'MISSING_ITEM'
+  | 'DELIVERY_PROBLEM'
+  | 'REFUND_REQUEST'
+  | 'PAYMENT_ISSUE'
+  | 'GENERAL';
+
+export type SupportRequest = {
+  id: string;
+  reference: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  subject: string;
+  category: SupportCategory;
+  message: string;
+  status: SupportStatus;
+  /** Null means nobody in ops has opened it yet. */
+  readAt: string | null;
+  internalNote: string | null;
+  createdAt: string;
+  order: { reference: string } | null;
+  user: { firstName: string; lastName: string; phone: string } | null;
+};
+
+export type SupportPage = {
+  requests: SupportRequest[];
+  counts: Record<SupportStatus, number>;
+  unread: number;
+};
+
+export type ReviewStatus = 'PENDING' | 'PUBLISHED' | 'HIDDEN';
+
+export type Review = {
+  id: string;
+  overallRating: number;
+  riderRating: number | null;
+  serviceRating: number | null;
+  comment: string | null;
+  status: ReviewStatus;
+  createdAt: string;
+  order: { reference: string; type: OrderType; channel: OrderChannel } | null;
+  customer: { firstName: string; lastName: string } | null;
+  rider: { firstName: string; lastName: string } | null;
+};
+
+/** The queue plus how much is sitting in each state, so the tabs can say so. */
+export type ReviewsPage = {
+  reviews: Review[];
+  counts: Record<ReviewStatus, number>;
+};
+
+export type PricingRuleType = 'PER_KM' | 'PER_KG' | 'WAITING_TIME' | 'URGENCY_MULTIPLIER' | 'FLAT_FEE';
+
+export type PricingRule = {
+  id: string;
+  serviceId: string;
+  type: PricingRuleType;
+  label: string;
+  /** A string, not a number: Prisma serialises Decimal as a string, and
+   *  parsing it into a float here is how 1.30 becomes 1.2999999999999998. */
+  value: string;
+  isActive: boolean;
+};
+
+export type Service = {
+  id: string;
+  /** Used by the website's URLs and booking form, so it is not editable. */
+  slug: string;
+  name: string;
+  shortDescription: string | null;
+  description: string | null;
+  icon: string | null;
+  baseFeeKobo: number;
+  isActive: boolean;
+  sortOrder: number;
+  pricingRules: PricingRule[];
+};
+
 export type RiderStatus = 'PENDING' | 'IN_REVIEW' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
 
 export type DocumentStatus = 'IN_REVIEW' | 'APPROVED' | 'REJECTED';
@@ -74,6 +160,7 @@ export type OrderListItem = {
   id: string;
   reference: string;
   type: OrderType;
+  channel: OrderChannel;
   status: OrderStatus;
   totalKobo: number;
   createdAt: string;
@@ -97,13 +184,71 @@ export type OrderItem = {
   unitPriceKobo: number;
 };
 
+export type PaymentStatus = 'PENDING' | 'SUCCESS' | 'FAILED' | 'REFUNDED';
+
+/** WALLET and PAYSTACK arrive from code; the other two are entered by hand. */
+export type PaymentProvider = 'PAYSTACK' | 'WALLET' | 'CASH' | 'BANK_TRANSFER';
+
 export type Payment = {
   id: string;
-  method: string;
-  status: string;
+  provider: PaymentProvider;
+  status: PaymentStatus;
   amountKobo: number;
   reference: string | null;
+  note: string | null;
+  paidAt: string | null;
   createdAt: string;
+  /** Null for anything a gateway created — that is how the two are told apart. */
+  recordedBy: { name: string } | null;
+};
+
+/** A ledger row, which unlike an order's own payments carries the order back. */
+export type LedgerPayment = Payment & {
+  order: {
+    id: string;
+    reference: string;
+    channel: OrderChannel;
+    totalKobo: number;
+    customer: { firstName: string; lastName: string; phone: string } | null;
+  } | null;
+};
+
+/** Delivered, with nothing recorded as received. Money the business is owed. */
+export type UnpaidOrder = {
+  id: string;
+  reference: string;
+  channel: OrderChannel;
+  totalKobo: number;
+  deliveredAt: string | null;
+  customer: { firstName: string; lastName: string; phone: string } | null;
+  rider: { firstName: string; lastName: string } | null;
+};
+
+export type PaymentsPage = {
+  payments: LedgerPayment[];
+  /** Across every payment ever, not just the listed page. */
+  totals: Record<PaymentStatus, number>;
+  counts: Record<PaymentStatus, number>;
+  unpaid: UnpaidOrder[];
+  unpaidTotalKobo: number;
+};
+
+export type Customer = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  /** Null where the only address on file was synthesised for a web booking. */
+  email: string | null;
+  phone: string;
+  walletBalanceKobo: number;
+  isActive: boolean;
+  createdAt: string;
+  /** What was actually collected, so an unpaid order does not count as spend. */
+  totalSpentKobo: number;
+  lastOrderAt: string | null;
+  /** Empty means they have never ordered. ['WEB'] means no app account. */
+  channels: OrderChannel[];
+  _count: { orders: number; supportRequests: number };
 };
 
 export type OrderDetail = OrderListItem & {
