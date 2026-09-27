@@ -1244,15 +1244,30 @@ adminRouter.get(
  * confirmed rather than something a gateway reported.
  * ------------------------------------------------------------------------- */
 
-/** GET /admin/payments?status=SUCCESS — the ledger, the totals, and who owes. */
+/**
+ * GET /admin/payments?status=SUCCESS&channel=WEB — ledger, totals, and who owes.
+ *
+ * The two filters have deliberately different reach. **channel narrows the whole
+ * page** — "what has the website brought in" is a question about the totals and
+ * the unpaid list too, not only the table. **status narrows the ledger alone**,
+ * because the totals ARE the breakdown by status; filtering those by status
+ * would leave every tile but one reading zero.
+ *
+ * Both are applied in the query. The ledger caps at 200 rows, so narrowing
+ * afterwards would mean "web payments among the last 200" while looking like
+ * "the last 200 web payments".
+ */
 adminRouter.get(
   '/payments',
   asyncHandler(async (req, res) => {
     const status = req.query.status as string | undefined;
+    const channel = req.query.channel as string | undefined;
+
+    const byChannel = channel ? { order: { channel: channel as never } } : {};
 
     const [payments, grouped, unpaid] = await Promise.all([
       prisma.payment.findMany({
-        where: status ? { status: status as never } : {},
+        where: { ...byChannel, ...(status ? { status: status as never } : {}) },
         orderBy: { createdAt: 'desc' },
         take: 200,
         include: {
@@ -1268,8 +1283,14 @@ adminRouter.get(
           recordedBy: { select: { name: true } },
         },
       }),
-      // Totals span every payment ever, not just the page being listed.
-      prisma.payment.groupBy({ by: ['status'], _sum: { amountKobo: true }, _count: true }),
+      // Totals span every payment ever, not just the page being listed — but
+      // they do follow the channel filter, which is the whole point of it.
+      prisma.payment.groupBy({
+        by: ['status'],
+        where: byChannel,
+        _sum: { amountKobo: true },
+        _count: true,
+      }),
       /**
        * Delivered, with nothing recorded as received. This is the list ops acts
        * on, and it is why the page exists: in a cash business the risk is not a
@@ -1278,7 +1299,11 @@ adminRouter.get(
        * Oldest first — the longest unpaid is the least likely to be recovered.
        */
       prisma.order.findMany({
-        where: { status: 'DELIVERED', payments: { none: { status: 'SUCCESS' } } },
+        where: {
+          status: 'DELIVERED',
+          payments: { none: { status: 'SUCCESS' } },
+          ...(channel ? { channel: channel as never } : {}),
+        },
         orderBy: { deliveredAt: 'asc' },
         take: 100,
         select: {
@@ -1309,6 +1334,134 @@ adminRouter.get(
         unpaidTotalKobo: unpaid.reduce((sum, o) => sum + o.totalKobo, 0),
       },
     });
+  })
+);
+
+/* ---- CSV export ---------------------------------------------------------
+ *
+ * Written for a spreadsheet, not for a parser. Three things are easy to get
+ * wrong here and expensive to discover after someone has reconciled against
+ * the file.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * A cell starting `=`, `+`, `-` or `@` is a formula to Excel and Sheets. Notes
+ * and customer names in this export are typed by people, so a value like
+ * `=cmd|...` would execute on open. Prefixing with an apostrophe makes it text.
+ * Plain numbers are exempt, or every negative amount would gain a quote.
+ */
+function csvCell(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  let s = String(value);
+  if (/^[=+\-@\t\r]/.test(s) && !/^-?\d+(\.\d+)?$/.test(s)) s = `'${s}`;
+  if (/[",\n\r]/.test(s)) s = `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+/**
+ * The BOM is not decoration. Without it Excel on Windows reads the file as the
+ * system codepage, so ₦ and the diacritics in Nigerian names render as
+ * mojibake — the data is intact, the file looks corrupt, and nobody trusts the
+ * export again. CRLF for the same audience.
+ */
+function toCsv(headers: string[], rows: unknown[][]): string {
+  const lines = [headers.map(csvCell).join(','), ...rows.map((r) => r.map(csvCell).join(','))];
+  return '﻿' + lines.join('\r\n') + '\r\n';
+}
+
+/**
+ * Refused rather than truncated past this. An export that silently stops at N
+ * rows is worse than no export: the total at the bottom of someone's
+ * spreadsheet is simply wrong, and nothing on the page says so.
+ */
+const EXPORT_MAX_ROWS = 10_000;
+
+/**
+ * GET /admin/payments/export?status=&channel= — the ledger as CSV.
+ *
+ * Exports everything matching the filter, not the 200 rows the page happens to
+ * be showing. The filename carries the filter so two exports do not overwrite
+ * each other in a Downloads folder.
+ */
+adminRouter.get(
+  '/payments/export',
+  asyncHandler(async (req, res) => {
+    const status = req.query.status as string | undefined;
+    const channel = req.query.channel as string | undefined;
+
+    const where = {
+      ...(channel ? { order: { channel: channel as never } } : {}),
+      ...(status ? { status: status as never } : {}),
+    };
+
+    const total = await prisma.payment.count({ where });
+    if (total > EXPORT_MAX_ROWS) {
+      throw badRequest(
+        `That is ${total.toLocaleString('en-NG')} payments, over the ${EXPORT_MAX_ROWS.toLocaleString('en-NG')} export limit. Narrow it by status or channel.`
+      );
+    }
+
+    const payments = await prisma.payment.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        order: {
+          select: {
+            reference: true,
+            channel: true,
+            totalKobo: true,
+            customer: { select: { firstName: true, lastName: true, phone: true } },
+          },
+        },
+        recordedBy: { select: { name: true } },
+      },
+    });
+
+    const csv = toCsv(
+      [
+        'paid_at',
+        'created_at',
+        'order_reference',
+        'channel',
+        'customer_name',
+        'customer_phone',
+        'method',
+        'payment_reference',
+        // Kobo is the exact figure and naira is the readable one. Both, because
+        // a spreadsheet that sums the readable column must still reconcile.
+        'amount_kobo',
+        'amount_naira',
+        'order_total_naira',
+        'status',
+        'recorded_by',
+        'note',
+      ],
+      payments.map((p) => [
+        p.paidAt?.toISOString() ?? '',
+        p.createdAt.toISOString(),
+        p.order?.reference ?? '',
+        p.order?.channel ?? '',
+        p.order?.customer ? `${p.order.customer.firstName} ${p.order.customer.lastName}`.trim() : '',
+        p.order?.customer?.phone ?? '',
+        p.provider,
+        p.reference ?? '',
+        p.amountKobo,
+        (p.amountKobo / 100).toFixed(2),
+        p.order ? (p.order.totalKobo / 100).toFixed(2) : '',
+        p.status,
+        // Empty means a gateway created it. That absence is meaningful, so it
+        // is left blank rather than filled with "system".
+        p.recordedBy?.name ?? '',
+        p.note ?? '',
+      ])
+    );
+
+    const parts = ['sendy-payments', channel?.toLowerCase(), status?.toLowerCase()].filter(Boolean);
+    const filename = `${parts.join('-')}-${new Date().toISOString().slice(0, 10)}.csv`;
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(csv);
   })
 );
 

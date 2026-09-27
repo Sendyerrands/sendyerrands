@@ -46,6 +46,50 @@ type RequestOptions = {
  * so this unwraps `data` and turns anything else into a typed throw — react-query
  * then treats it as an error without every caller re-checking shapes.
  */
+/**
+ * Downloads a file from an authenticated endpoint.
+ *
+ * Separate from `api()` because that one always parses JSON. A plain
+ * `<a href>` cannot be used either — these routes need an Authorization
+ * header, and a browser navigation sends none, so the link would just 401.
+ *
+ * The filename comes from Content-Disposition when the server sets one, so the
+ * server stays in charge of naming and the two cannot drift apart.
+ */
+export async function apiDownload(path: string, fallbackName: string): Promise<void> {
+  const token = getToken();
+  if (!token) throw new UnauthorizedError('You are not signed in.');
+
+  const res = await fetch(`${BASE_URL}${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    // Errors still come back as the usual JSON envelope.
+    const payload = (await res.json().catch(() => null)) as
+      | { error?: { message?: string; code?: string } }
+      | null;
+    const message = payload?.error?.message ?? `Export failed (${res.status}).`;
+    if (res.status === 401 || res.status === 403) throw new UnauthorizedError(message);
+    throw new ApiError(message, res.status, payload?.error?.code);
+  }
+
+  const disposition = res.headers.get('Content-Disposition') ?? '';
+  const match = /filename="?([^"]+)"?/.exec(disposition);
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = match?.[1] ?? fallbackName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Revoked on the next tick: revoking synchronously can cancel the download
+  // in some browsers before it has started reading the blob.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, auth = true, signal } = options;
 

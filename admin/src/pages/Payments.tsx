@@ -3,7 +3,8 @@ import { useState } from 'react';
 import { PageHeader } from '@/components/Layout';
 import { Button, Card, EmptyState, ErrorState, Field, Loading, Modal, Pill, inputClass } from '@/components/ui';
 import { dateTime, fullName, humanise, naira, relative } from '@/lib/format';
-import { usePayments, useRecordPayment } from '@/lib/hooks';
+import { apiDownload } from '@/lib/api';
+import { paymentsQuery, usePayments, useRecordPayment } from '@/lib/hooks';
 import type { PaymentStatus, UnpaidOrder } from '@/lib/types';
 
 /**
@@ -34,10 +35,38 @@ const FILTERS: { value: string; label: string }[] = [
   { value: 'REFUNDED', label: 'Refunded' },
 ];
 
+/** Where the money came in from. Scopes the whole page, unlike the status tabs. */
+const CHANNELS: { value: string; label: string }[] = [
+  { value: '', label: 'All channels' },
+  { value: 'APP', label: 'App' },
+  { value: 'WEB', label: 'Website' },
+];
+
 export function Payments() {
   const [filter, setFilter] = useState('');
-  const { data, isLoading, isError, error, refetch } = usePayments(filter);
+  const [channel, setChannel] = useState('');
+  const { data, isLoading, isError, error, refetch } = usePayments({ status: filter, channel });
   const [recording, setRecording] = useState<UnpaidOrder | null>(null);
+
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  const runExport = async () => {
+    setExporting(true);
+    setExportError(null);
+    try {
+      await apiDownload(
+        `/admin/payments/export${paymentsQuery({ status: filter, channel })}`,
+        'sendy-payments.csv'
+      );
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : 'That export failed.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const scope = CHANNELS.find((c) => c.value === channel)?.label ?? 'All channels';
 
   return (
     <>
@@ -47,6 +76,36 @@ export function Payments() {
       />
 
       <div className="p-4 sm:p-8">
+        {/* Above the tiles, because unlike the status tabs this narrows
+            everything below it — the totals and the owed list included. */}
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap gap-1.5">
+            {CHANNELS.map((c) => (
+              <button
+                key={c.value}
+                onClick={() => setChannel(c.value)}
+                className={`rounded-full px-3.5 py-1.5 text-[12.5px] font-semibold transition-colors ${
+                  channel === c.value
+                    ? 'bg-ink text-white'
+                    : 'bg-muted/10 text-body hover:bg-muted/20'
+                }`}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+
+          <Button variant="secondary" size="sm" loading={exporting} onClick={runExport}>
+            Export {scope.toLowerCase()} CSV
+          </Button>
+        </div>
+
+        {exportError ? (
+          <p role="alert" className="mb-3 rounded-lg bg-error/10 px-3 py-2 text-[13px] text-error">
+            {exportError}
+          </p>
+        ) : null}
+
         {isLoading ? (
           <Card>
             <Loading />

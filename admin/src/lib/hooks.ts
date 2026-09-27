@@ -274,11 +274,18 @@ export function useCustomers(q?: string) {
 /* ---- payments ----
    Money in. Separate from payouts, which are money out. */
 
-export function usePayments(status?: string) {
-  const suffix = status ? `?status=${encodeURIComponent(status)}` : '';
+/** Both filters go to the server — see the route for why they differ in reach. */
+export function paymentsQuery(filters: { status?: string; channel?: string }) {
+  const params = new URLSearchParams();
+  if (filters.status) params.set('status', filters.status);
+  if (filters.channel) params.set('channel', filters.channel);
+  return params.toString() ? `?${params}` : '';
+}
+
+export function usePayments(filters: { status?: string; channel?: string } = {}) {
   return useQuery({
-    queryKey: ['payments', status ?? ''],
-    queryFn: () => api<PaymentsPage>(`/admin/payments${suffix}`),
+    queryKey: ['payments', filters.status ?? '', filters.channel ?? ''],
+    queryFn: () => api<PaymentsPage>(`/admin/payments${paymentsQuery(filters)}`),
     refetchInterval: LIVE_REFETCH_MS,
   });
 }
