@@ -325,6 +325,18 @@ webOrdersRouter.get(
          */
         totalKobo: true,
         /**
+         * The lines behind that total.
+         *
+         * Withheld at first on the grounds that money columns are internal,
+         * which was too broad a rule: a delivery fee and a service fee are what
+         * this customer is being charged and what any receipt is expected to
+         * itemise. The genuinely internal figure is riderPayoutKobo — what
+         * Sendy keeps versus what the rider earns is nobody else's business —
+         * and that stays out.
+         */
+        deliveryFeeKobo: true,
+        serviceFeeKobo: true,
+        /**
          * The customer's own door code. Published here because the customer is
          * the only person who is supposed to have it — they read it to the
          * rider, and the rider cannot complete the delivery without it. Keeping
@@ -357,6 +369,8 @@ webOrdersRouter.get(
         assignedAt: order.assignedAt,
         deliveredAt: order.deliveredAt,
         totalKobo: order.totalKobo,
+        deliveryFeeKobo: order.deliveryFeeKobo,
+        serviceFeeKobo: order.serviceFeeKobo,
         paidKobo,
         amountDueKobo,
         // Withheld once the errand is closed: a delivered order's code proves
