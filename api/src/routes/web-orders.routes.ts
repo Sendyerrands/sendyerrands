@@ -4,11 +4,12 @@ import { OrderStatus, Prisma } from '@prisma/client';
 import { Router } from 'express';
 import { z } from 'zod';
 
-import { badRequest, notFound } from '@/lib/errors';
+import { badRequest, conflict, notFound } from '@/lib/errors';
 import { hashPassword } from '@/lib/password';
 import { prisma } from '@/lib/prisma';
 import { normalisePhone, orderReference, paymentReference, referralCode } from '@/lib/reference';
 import { asyncHandler, validate, webBookingLimiter } from '@/middleware';
+import { initializeTransaction } from '@/services/paystack';
 
 /**
  * The website's booking surface.
@@ -295,12 +296,24 @@ webOrdersRouter.get(
        * phone and every money column are deliberately absent.
        */
       select: {
+        id: true,
         reference: true,
         status: true,
         channel: true,
         createdAt: true,
         assignedAt: true,
         deliveredAt: true,
+        /**
+         * What this customer owes Sendy, and nothing else.
+         *
+         * The fee breakdown, the rider's cut and the goods budget all stay out:
+         * they are internal, and the amount due is the only figure the person
+         * holding this link has to act on. Published because it is their own
+         * order and the token is unguessable — not because money columns are
+         * safe here generally.
+         */
+        totalKobo: true,
+        payments: { where: { status: 'SUCCESS' }, select: { amountKobo: true } },
         errandDetail: { select: { task: true, pickupAddress: true } },
         address: { select: { line1: true } },
         rider: { select: { firstName: true } },
@@ -308,6 +321,10 @@ webOrdersRouter.get(
     });
 
     if (!order) throw notFound('Order');
+
+    const paidKobo = order.payments.reduce((sum, p) => sum + p.amountKobo, 0);
+    const amountDueKobo = Math.max(0, order.totalKobo - paidKobo);
+    const settled = ['DELIVERED', 'CANCELLED', 'REFUNDED'].includes(order.status);
 
     res.json({
       data: {
@@ -320,6 +337,16 @@ webOrdersRouter.get(
         createdAt: order.createdAt,
         assignedAt: order.assignedAt,
         deliveredAt: order.deliveredAt,
+        totalKobo: order.totalKobo,
+        paidKobo,
+        amountDueKobo,
+        /**
+         * Whether to offer a Pay now button at all. An unpriced errand has
+         * nothing to charge for, and a cancelled one must not take money.
+         * Paying is optional either way — cash on delivery is still how most
+         * of these settle — so this being false is not an error state.
+         */
+        canPayOnline: order.totalKobo > 0 && amountDueKobo > 0 && !settled,
       },
     });
   })
@@ -374,6 +401,167 @@ const supportSchema = z.object({
   /** The tracking id from a booking, when the question is about one errand. */
   trackingId: z.string().trim().max(60).optional(),
 });
+
+/**
+ * POST /web/orders/:trackingId/pay — start a card payment for a web booking.
+ *
+ * Public, and authorised by the tracking token alone. That token is a cuid the
+ * customer was handed at booking and is the same thing that already exposes the
+ * order's status — there is no account to sign into, because a web booking
+ * deliberately never creates a password. What it authorises is narrow: begin a
+ * payment TO this order. It cannot move money out, change an address or cancel
+ * anything.
+ *
+ * WHAT IS BEING CHARGED
+ *
+ * Only what the customer owes Sendy — the delivery and service fee. The cost of
+ * the goods never passes through here; it goes from the customer to the
+ * merchant, exactly as in the app. That is a deliberate limit on how much of
+ * other people's money sits on the platform: a disputed ₦45,000 grocery run
+ * never lands on the Paystack balance, so there is nothing to refund and
+ * nothing to hold.
+ *
+ * Paying is optional. Cash on delivery still works and is how most of these
+ * settle; this is a convenience, not a gate on dispatch.
+ */
+webOrdersRouter.post(
+  '/orders/:trackingId/pay',
+  webBookingLimiter,
+  validate(
+    z.object({
+      /** Where Paystack returns the customer. Must be on our own site. */
+      callbackUrl: z.string().trim().max(300).optional(),
+    })
+  ),
+  asyncHandler(async (req, res) => {
+    const trackingId = req.params.trackingId!;
+    const { callbackUrl: requestedCallback } = req.body as { callbackUrl?: string };
+
+    /**
+     * Paystack sends the browser wherever this points once payment finishes, so
+     * it is not something a caller gets to choose freely — that is a redirect
+     * off our own checkout to anywhere, laundered through a domain the customer
+     * just decided to trust with their card. Anything unrecognised is dropped
+     * rather than rejected: Paystack then uses the callback configured on the
+     * dashboard, and the payment still completes.
+     */
+    const ALLOWED_CALLBACK_ORIGINS = [
+      'https://sendyerrands.com',
+      'https://www.sendyerrands.com',
+    ];
+    const callbackUrl =
+      requestedCallback && ALLOWED_CALLBACK_ORIGINS.some((origin) => requestedCallback.startsWith(origin + '/'))
+        ? requestedCallback
+        : undefined;
+
+    const order = await prisma.order.findUnique({
+      where: { id: trackingId },
+      select: {
+        id: true,
+        reference: true,
+        status: true,
+        channel: true,
+        totalKobo: true,
+        customer: { select: { email: true, phone: true } },
+        payments: {
+          where: { status: { in: ['SUCCESS', 'PENDING'] } },
+          select: { id: true, status: true, amountKobo: true, provider: true, authorizationUrl: true, createdAt: true },
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
+
+    if (!order) throw notFound('Order');
+
+    if (order.totalKobo <= 0) {
+      throw badRequest('This errand has not been priced yet. We will confirm the amount with you first.');
+    }
+
+    if (['CANCELLED', 'REFUNDED'].includes(order.status)) {
+      throw conflict('This errand is closed, so there is nothing to pay.');
+    }
+
+    const paidKobo = order.payments
+      .filter((p) => p.status === 'SUCCESS')
+      .reduce((sum, p) => sum + p.amountKobo, 0);
+    const dueKobo = order.totalKobo - paidKobo;
+
+    if (dueKobo <= 0) throw conflict('This errand is already paid for.');
+
+    /**
+     * Reuse a checkout that is still good rather than minting another.
+     *
+     * A customer who closes the Paystack tab and presses Pay again would
+     * otherwise leave a trail of abandoned PENDING rows, each one looking like
+     * money in flight on the Payments page. Paystack keeps an unpaid
+     * authorization alive for about an hour.
+     */
+    const reusable = order.payments.find(
+      (p) =>
+        p.status === 'PENDING' &&
+        p.provider === 'PAYSTACK' &&
+        p.authorizationUrl &&
+        p.amountKobo === dueKobo &&
+        Date.now() - p.createdAt.getTime() < 45 * 60 * 1000
+    );
+
+    if (reusable?.authorizationUrl) {
+      return res.json({
+        data: { authorizationUrl: reusable.authorizationUrl, amountKobo: dueKobo, reused: true },
+      });
+    }
+
+    /**
+     * Paystack requires an email. A web booking that collected none has a
+     * synthesised `.invalid` address, which is syntactically valid and
+     * guaranteed never to resolve — so Paystack accepts it and no receipt is
+     * ever sent into the void. The customer sees their receipt on screen.
+     */
+    const email =
+      order.customer?.email ?? `${(order.customer?.phone ?? 'web').replace('+', '')}@web.sendyerrands.invalid`;
+
+    // PSK-WEB, so app and website transactions are separable in Paystack's own
+    // dashboard search and CSV exports, where metadata is not always carried.
+    const reference = paymentReference('PSK-WEB');
+
+    const init = await initializeTransaction({
+      email,
+      amountKobo: dueKobo,
+      reference,
+      metadata: {
+        orderId: order.id,
+        orderReference: order.reference,
+        /**
+         * Not `channel`. Paystack already uses that word for card/bank/USSD on
+         * every transaction it returns, and two fields of the same name meaning
+         * different things is a reconciliation bug waiting to happen.
+         */
+        source: order.channel,
+        custom_fields: [
+          { display_name: 'Order', variable_name: 'order_reference', value: order.reference },
+          { display_name: 'Booked from', variable_name: 'source', value: order.channel === 'WEB' ? 'Website' : 'Mobile app' },
+        ],
+      },
+      ...(callbackUrl ? { callbackUrl } : {}),
+    });
+
+    // Paystack answers in snake_case; the Payment column is camelCase.
+    await prisma.payment.create({
+      data: {
+        orderId: order.id,
+        provider: 'PAYSTACK',
+        reference,
+        amountKobo: dueKobo,
+        status: 'PENDING',
+        authorizationUrl: init.authorization_url,
+      },
+    });
+
+    res.status(201).json({
+      data: { authorizationUrl: init.authorization_url, amountKobo: dueKobo, reused: false },
+    });
+  })
+);
 
 /**
  * POST /web/support — a request for help from the website.

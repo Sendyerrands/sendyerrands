@@ -133,7 +133,27 @@ paymentsRouter.post(
       email: user?.email ?? `${user?.phone?.replace('+', '')}@sendy.app`,
       amountKobo: order.totalKobo,
       reference,
-      metadata: { orderId: order.id, orderReference: order.reference, customerId },
+      metadata: {
+        orderId: order.id,
+        orderReference: order.reference,
+        customerId,
+        /**
+         * Which front end this came from. Not called `channel`: Paystack uses
+         * that word for card/bank/USSD on every transaction it returns, and two
+         * fields of the same name meaning different things is a reconciliation
+         * bug waiting to be written. custom_fields is what Paystack renders as
+         * labelled rows on the transaction page.
+         */
+        source: order.channel,
+        custom_fields: [
+          { display_name: 'Order', variable_name: 'order_reference', value: order.reference },
+          {
+            display_name: 'Booked from',
+            variable_name: 'source',
+            value: order.channel === 'WEB' ? 'Website' : 'Mobile app',
+          },
+        ],
+      },
       callbackUrl,
     });
 
@@ -365,6 +385,27 @@ async function settlePayment(reference: string, success: boolean, payload: unkno
         providerPayload: payload as never,
       },
     });
+
+    /**
+     * Put it on the order's own timeline either way.
+     *
+     * Only PENDING_PAYMENT moves on payment — a web errand sits at
+     * QUOTE_REQUESTED and is priced before anyone pays, so it must not be shoved
+     * down the app's paid-up-front lane. Without this event, money for such an
+     * order would appear in the ledger and nowhere on the order a customer is
+     * calling about.
+     */
+    if (success) {
+      await tx.orderEvent.create({
+        data: {
+          orderId: payment.orderId,
+          status: payment.order.status,
+          label: 'Payment received',
+          note: `₦${(payment.amountKobo / 100).toLocaleString('en-NG')} by card`,
+          actorType: 'system',
+        },
+      });
+    }
 
     if (success && payment.order.status === 'PENDING_PAYMENT') {
       await transitionOrder(payment.orderId, 'PLACED', { type: 'system' }, { tx });
