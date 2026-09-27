@@ -1337,6 +1337,135 @@ adminRouter.get(
   })
 );
 
+/**
+ * POST /admin/orders/:id/quote — put a price on an order.
+ *
+ * The missing half of the payments flow. Prices are otherwise proposed by a
+ * rider standing in front of the item, which works for an app errand and not at
+ * all for one booked on the website: there is no rider yet, and nobody has seen
+ * the goods. Until now the only thing pointing at this gap was the error
+ * "Quote it first", which named a screen that did not exist.
+ *
+ * WHAT totalKobo MEANS HERE
+ *
+ * totalKobo is what the customer owes **Sendy** — the delivery and service fee.
+ * The cost of the goods is recorded separately on the errand as budgetKobo and
+ * never passes through Sendy: the customer settles that with the merchant or
+ * hands it to the rider. Folding goods into totalKobo would make the Payments
+ * page claim the business is owed money it was never going to collect, and
+ * leave every part-paid order sitting in the unpaid list forever.
+ *
+ * Restricted to OPERATIONS and SUPERADMIN. Setting a price is deciding what to
+ * charge someone.
+ */
+adminRouter.post(
+  '/orders/:id/quote',
+  validate(
+    z.object({
+      deliveryFeeKobo: z.number().int().min(0),
+      serviceFeeKobo: z.number().int().min(0),
+      /** What the goods are expected to cost. Recorded, never charged. */
+      goodsEstimateKobo: z.number().int().min(0).optional(),
+      note: z.string().trim().max(300).optional(),
+    })
+  ),
+  asyncHandler(async (req, res) => {
+    const orderId = req.params.id!;
+    const body = req.body as {
+      deliveryFeeKobo: number;
+      serviceFeeKobo: number;
+      goodsEstimateKobo?: number;
+      note?: string;
+    };
+
+    const admin = await prisma.admin.findUnique({
+      where: { id: req.auth!.id },
+      select: { id: true, role: true },
+    });
+    if (admin?.role !== 'OPERATIONS' && admin?.role !== 'SUPERADMIN') {
+      throw forbidden('Only operations staff can price an order.');
+    }
+
+    const totalKobo = body.deliveryFeeKobo + body.serviceFeeKobo;
+    if (totalKobo <= 0) {
+      throw badRequest('A quote has to come to more than zero.');
+    }
+
+    const naira = (kobo: number) => `₦${(kobo / 100).toLocaleString('en-NG')}`;
+
+    const result = await prisma.$transaction(async (tx) => {
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        select: {
+          id: true,
+          reference: true,
+          status: true,
+          type: true,
+          totalKobo: true,
+          payments: { where: { status: 'SUCCESS' }, select: { amountKobo: true } },
+          errandDetail: { select: { orderId: true } },
+        },
+      });
+      if (!order) throw notFound('Order');
+
+      /**
+       * Locked once money has been taken, matching the PHP admin. Re-pricing a
+       * paid order silently creates a mismatch between what was charged and
+       * what the books say was owed, and there is no honest way to resolve it
+       * later. Refund first, then re-price.
+       */
+      if (order.payments.length > 0) {
+        const paid = order.payments.reduce((sum, p) => sum + p.amountKobo, 0);
+        throw conflict(
+          `${order.reference} already has ${naira(paid)} recorded against it. Refund that before changing the price.`
+        );
+      }
+
+      const updated = await tx.order.update({
+        where: { id: orderId },
+        data: {
+          deliveryFeeKobo: body.deliveryFeeKobo,
+          serviceFeeKobo: body.serviceFeeKobo,
+          totalKobo,
+        },
+        select: { id: true, reference: true, status: true, totalKobo: true },
+      });
+
+      // Only errands carry a goods budget, and only if one already exists —
+      // creating an ErrandDetail for a food or package order would invent a
+      // shape the rest of the code does not expect on those types.
+      if (body.goodsEstimateKobo !== undefined && order.errandDetail) {
+        await tx.errandDetail.update({
+          where: { orderId },
+          data: { budgetKobo: body.goodsEstimateKobo },
+        });
+      }
+
+      await tx.orderEvent.create({
+        data: {
+          orderId,
+          status: order.status,
+          label: order.totalKobo > 0 ? 'Price updated' : 'Price agreed',
+          note: [
+            `${naira(totalKobo)} to Sendy`,
+            body.goodsEstimateKobo ? `goods about ${naira(body.goodsEstimateKobo)}` : null,
+            body.note,
+          ]
+            .filter(Boolean)
+            .join(' — '),
+          actorType: 'admin',
+          actorId: admin.id,
+        },
+      });
+
+      return updated;
+    });
+
+    console.warn(`[admin] ${result.reference} priced at ${totalKobo} kobo by admin ${admin.id}`);
+    res.json({ data: result });
+  })
+);
+
 /* ---- CSV export ---------------------------------------------------------
  *
  * Written for a spreadsheet, not for a parser. Three things are easy to get

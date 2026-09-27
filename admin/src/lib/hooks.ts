@@ -114,6 +114,32 @@ export function useSetOrderStatus() {
   );
 }
 
+/**
+ * Puts a price on an order. Invalidates payments too: a newly priced order can
+ * appear in, or drop out of, the "delivered and never collected for" list.
+ */
+export function useQuoteOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (vars: {
+      orderId: string;
+      deliveryFeeKobo: number;
+      serviceFeeKobo: number;
+      goodsEstimateKobo?: number;
+      note?: string;
+    }) => {
+      const { orderId, ...body } = vars;
+      return api(`/admin/orders/${orderId}/quote`, { method: 'POST', body });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['order'] });
+      qc.invalidateQueries({ queryKey: ['orders'] });
+      qc.invalidateQueries({ queryKey: ['payments'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+}
+
 export function useRefundOrder() {
   return useOrderMutation((vars: { orderId: string; amountKobo?: number; reason?: string }) =>
     api(`/admin/orders/${vars.orderId}/refund`, {

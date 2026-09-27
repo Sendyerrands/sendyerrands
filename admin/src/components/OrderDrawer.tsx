@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 
 import {
   Button,
@@ -13,16 +13,17 @@ import { dateTime, fullName, humanise, naira } from '@/lib/format';
 import {
   useAssignRider,
   useOrder,
+  useQuoteOrder,
   useRefundOrder,
   useRiders,
   useSetOrderStatus,
 } from '@/lib/hooks';
-import type { OrderStatus } from '@/lib/types';
+import type { OrderDetail, OrderStatus } from '@/lib/types';
 
 /**
  * Mirrors the server's transition table in `api/src/services/orders.ts`.
  *
- * The API is still the authority — it rejects an illegal jump — but offering
+ * The API is still the authority â€” it rejects an illegal jump â€” but offering
  * only legal moves means ops never picks something that is going to bounce.
  * Keep this in step if the server table changes.
  *
@@ -45,7 +46,7 @@ const TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
 /**
  * Side panel for a single order: the audit trail plus the three ops actions.
  *
- * Actions are deliberately gated on the order's own state — a delivered order
+ * Actions are deliberately gated on the order's own state â€” a delivered order
  * can't be reassigned, and a refunded one can't be refunded twice. The API
  * enforces this too; hiding the controls just stops ops hitting an error wall.
  */
@@ -71,7 +72,7 @@ export function OrderDrawer({ orderId, onClose }: { orderId: string | null; onCl
             </p>
             {order ? (
               <p className="text-[12px] text-muted">
-                {humanise(order.type)} · {dateTime(order.createdAt)}
+                {humanise(order.type)} Â· {dateTime(order.createdAt)}
               </p>
             ) : null}
           </div>
@@ -80,7 +81,7 @@ export function OrderDrawer({ orderId, onClose }: { orderId: string | null; onCl
             aria-label="Close"
             className="rounded-lg px-2 py-1 text-muted hover:bg-surface"
           >
-            ✕
+            âœ•
           </button>
         </header>
 
@@ -133,11 +134,11 @@ function Body({
             {order.payments.map((p) => (
               <li key={p.id} className="flex justify-between gap-3 text-[13px]">
                 <span className="min-w-0 text-body">
-                  {humanise(p.provider)} · {humanise(p.status)}
+                  {humanise(p.provider)} Â· {humanise(p.status)}
                   {/* Cash and transfers have no external record to check, so the
                       only control on "this arrived" is whose word it is. */}
                   {p.recordedBy ? (
-                    <span className="text-muted"> · recorded by {p.recordedBy.name}</span>
+                    <span className="text-muted"> Â· recorded by {p.recordedBy.name}</span>
                   ) : null}
                 </span>
                 <span className="num whitespace-nowrap text-muted">{naira(p.amountKobo)}</span>
@@ -145,6 +146,8 @@ function Body({
             ))}
           </ul>
         ) : null}
+
+        <QuoteOrder order={order} />
       </section>
 
       {/* people */}
@@ -152,11 +155,11 @@ function Body({
         <h4 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted">People</h4>
         <dl className="space-y-1.5 text-sm">
           <Row label="Customer" value={fullName(order.customer)} />
-          <Row label="Phone" value={order.customer?.phone ?? '—'} />
+          <Row label="Phone" value={order.customer?.phone ?? 'â€”'} />
           {order.vendor ? <Row label="Vendor" value={order.vendor.name} /> : null}
           <Row
             label="Rider"
-            value={order.rider ? `${fullName(order.rider)} · ${order.rider.phone}` : 'Unassigned'}
+            value={order.rider ? `${fullName(order.rider)} Â· ${order.rider.phone}` : 'Unassigned'}
           />
         </dl>
       </section>
@@ -175,7 +178,7 @@ function Body({
             <p className="text-[13px] text-muted">Landmark: {order.address.landmark}</p>
           ) : null}
           <p className="mt-1 text-[13px] text-muted">
-            {order.address.contact} · {order.address.phone}
+            {order.address.contact} Â· {order.address.phone}
           </p>
         </section>
       ) : null}
@@ -188,7 +191,7 @@ function Body({
             {order.items.map((i) => (
               <li key={i.id} className="flex justify-between text-sm">
                 <span className="text-body">
-                  {i.quantity}× {i.name}
+                  {i.quantity}Ã— {i.name}
                 </span>
                 <span className="num text-ink">{naira(i.unitPriceKobo * i.quantity)}</span>
               </li>
@@ -232,7 +235,7 @@ function Body({
                 <p className="text-[13px] font-semibold text-ink">{humanise(e.status)}</p>
                 <p className="text-[12px] text-muted">
                   {dateTime(e.createdAt)}
-                  {e.actorType ? ` · by ${e.actorType.toLowerCase()}` : ''}
+                  {e.actorType ? ` Â· by ${e.actorType.toLowerCase()}` : ''}
                 </p>
                 {e.note ? <p className="text-[13px] text-body">{e.note}</p> : null}
               </div>
@@ -242,6 +245,114 @@ function Body({
       </section>
 
       <Actions order={order} isClosed={isClosed} onDone={onDone} />
+    </div>
+  );
+}
+
+/**
+ * Putting a price on an order.
+ *
+ * Only offered where there is a price to put. An app order arrives with a
+ * total already on it; a website errand arrives at zero, because nobody has
+ * seen the goods yet, and until this existed the only thing acknowledging that
+ * gap was an error message telling ops to "quote it first".
+ *
+ * The goods estimate is recorded and never charged - the customer settles that
+ * with the merchant. Only the fee is money owed to Sendy, which is what keeps
+ * the Payments page honest about what is actually outstanding.
+ */
+function QuoteOrder({ order }: { order: OrderDetail }) 
+{
+  const quote = useQuoteOrder();
+  const [open, setOpen] = useState(false);
+
+  const [delivery, setDelivery] = useState(String(order.deliveryFeeKobo / 100));
+  const [service, setService] = useState(String(order.serviceFeeKobo / 100));
+  const [goods, setGoods] = useState(
+    order.errandDetail?.budgetKobo ? String(order.errandDetail.budgetKobo / 100) : ''
+  );
+
+  const paid = order.payments.some((p) => p.status === 'SUCCESS');
+  const isErrand = order.type === 'ERRAND';
+
+  const toKobo = (value: string) => Math.round(Number(value || 0) * 100);
+  const totalKobo = toKobo(delivery) + toKobo(service);
+  const invalid = !Number.isFinite(totalKobo) || totalKobo <= 0;
+
+  // Money already taken locks the price: re-pricing a paid order creates a
+  // permanent mismatch between what was charged and what the books say.
+  if (paid) {
+    return (
+      <p className="mt-3 text-[12.5px] text-muted">
+        Price locked â€” a payment has been recorded. Refund it first to re-price.
+      </p>
+    );
+  }
+
+  if (!open) {
+    return (
+      <Button variant="secondary" size="sm" className="mt-3" onClick={() => setOpen(true)}>
+        {order.totalKobo > 0 ? 'Change price' : 'Set price'}
+      </Button>
+    );
+  }
+
+  return (
+    <div className="mt-3 rounded-lg border border-hairline p-3">
+      <p className="mb-2 text-[12.5px] text-muted">
+        What the customer owes Sendy. {isErrand ? 'The cost of the goods is recorded separately and is paid to the merchant, not to us.' : null}
+      </p>
+
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Field label="Delivery fee (â‚¦)">
+          <input value={delivery} onChange={(e) => setDelivery(e.target.value)} inputMode="decimal" className={inputClass} />
+        </Field>
+        <Field label="Service fee (â‚¦)">
+          <input value={service} onChange={(e) => setService(e.target.value)} inputMode="decimal" className={inputClass} />
+        </Field>
+      </div>
+
+      {isErrand ? (
+        <div className="mt-2">
+          <Field label="Goods estimate (â‚¦)" hint="Recorded only. Never charged, and not counted as owed to Sendy.">
+            <input value={goods} onChange={(e) => setGoods(e.target.value)} inputMode="decimal" className={inputClass} />
+          </Field>
+        </div>
+      ) : null}
+
+      <p className="mt-3 text-sm text-body">
+        Customer owes <strong className="num text-ink">{naira(totalKobo)}</strong>
+      </p>
+
+      {quote.isError ? (
+        <p role="alert" className="mt-2 rounded-lg bg-error/10 px-3 py-2 text-[13px] text-error">
+          {quote.error instanceof Error ? quote.error.message : 'That price could not be saved.'}
+        </p>
+      ) : null}
+
+      <div className="mt-3 flex gap-2">
+        <Button
+          size="sm"
+          loading={quote.isPending}
+          disabled={invalid}
+          onClick={() =>
+            quote.mutate(
+              {
+                orderId: order.id,
+                deliveryFeeKobo: toKobo(delivery),
+                serviceFeeKobo: toKobo(service),
+                ...(isErrand && goods.trim() !== '' ? { goodsEstimateKobo: toKobo(goods) } : {}),
+              },
+              { onSuccess: () => setOpen(false) }
+            )
+          }
+        >
+          Save price
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setOpen(false)} disabled={quote.isPending}>
+          Cancel
+        </Button>
+      </div>
     </div>
   );
 }
@@ -295,10 +406,10 @@ function Actions({
                   onChange={(e) => setRiderId(e.target.value)}
                   className={inputClass}
                 >
-                  <option value="">Choose a rider…</option>
+                  <option value="">Choose a riderâ€¦</option>
                   {(riders ?? []).map((r) => (
                     <option key={r.id} value={r.id}>
-                      {fullName(r)} · {r.isOnline ? 'online' : 'offline'} · {r.completedJobs} jobs
+                      {fullName(r)} Â· {r.isOnline ? 'online' : 'offline'} Â· {r.completedJobs} jobs
                     </option>
                   ))}
                 </select>
@@ -333,7 +444,7 @@ function Actions({
                 className={inputClass}
               >
                 <option value="">
-                  {allowed.length === 0 ? 'No moves left from here' : 'Choose a status…'}
+                  {allowed.length === 0 ? 'No moves left from here' : 'Choose a statusâ€¦'}
                 </option>
                 {allowed.map((s) => (
                   <option key={s} value={s}>
