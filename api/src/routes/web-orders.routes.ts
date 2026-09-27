@@ -57,6 +57,8 @@ const bookingSchema = z.object({
    */
   pickupAddress: z.string().trim().min(1).max(240),
   dropoffAddress: z.string().trim().min(1).max(240),
+  /** How to find the door once the rider is on the street. */
+  landmark: blankAsAbsent(z.string().trim().max(160)),
   details: blankAsAbsent(z.string().trim().max(1000)),
   /**
    * Optional, and the caller decides what it means. The website derives one
@@ -251,6 +253,14 @@ webOrdersRouter.post(
               userId: customer.id,
               label: 'Website booking',
               line1: body.dropoffAddress,
+              /**
+               * "Opposite the blue gate" — the schema's own comment says this
+               * matters more than a street number here, and it was right. Much
+               * of Lagos has patchy street naming, so this is frequently the
+               * only thing that actually gets a rider to the door. The column
+               * existed and nothing filled it.
+               */
+              landmark: body.landmark ?? null,
               contact: body.name,
               phone,
             },
