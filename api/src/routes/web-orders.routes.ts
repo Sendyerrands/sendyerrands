@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { badRequest, conflict, notFound } from '@/lib/errors';
 import { hashPassword } from '@/lib/password';
 import { prisma } from '@/lib/prisma';
-import { normalisePhone, orderReference, paymentReference, referralCode } from '@/lib/reference';
+import { deliveryCode, normalisePhone, orderReference, paymentReference, referralCode } from '@/lib/reference';
 import { asyncHandler, validate, webBookingLimiter } from '@/middleware';
 import { initializeTransaction } from '@/services/paystack';
 
@@ -222,6 +222,17 @@ webOrdersRouter.post(
            * which is exactly what QUOTE_REQUESTED already describes for errands.
            */
           status: 'QUOTE_REQUESTED',
+          /**
+           * The 4-digit code the customer reads out at the door.
+           *
+           * Every other create path mints one; this one did not, and the effect
+           * was invisible until the last possible moment. The rider's DELIVERED
+           * step compares the code it is given against this column, so a null
+           * here can never match — every website delivery would have been
+           * rejected at the doorstep with "that code does not match", after the
+           * errand was already run.
+           */
+          deliveryCode: deliveryCode(),
           // `connect` rather than a bare customerId: Prisma treats a create as
           // either all scalar foreign keys or all relation writes, and nesting
           // the address below puts this one in the latter camp.
@@ -313,6 +324,14 @@ webOrdersRouter.get(
          * safe here generally.
          */
         totalKobo: true,
+        /**
+         * The customer's own door code. Published here because the customer is
+         * the only person who is supposed to have it — they read it to the
+         * rider, and the rider cannot complete the delivery without it. Keeping
+         * it from this page would leave the one person who needs it unable to
+         * find it anywhere.
+         */
+        deliveryCode: true,
         payments: { where: { status: 'SUCCESS' }, select: { amountKobo: true } },
         errandDetail: { select: { task: true, pickupAddress: true } },
         address: { select: { line1: true } },
@@ -340,6 +359,9 @@ webOrdersRouter.get(
         totalKobo: order.totalKobo,
         paidKobo,
         amountDueKobo,
+        // Withheld once the errand is closed: a delivered order's code proves
+        // nothing and is one more secret sitting on a shareable link.
+        deliveryCode: settled ? null : order.deliveryCode,
         /**
          * Whether to offer a Pay now button at all. An unpriced errand has
          * nothing to charge for, and a cancelled one must not take money.

@@ -343,6 +343,23 @@ function QuoteOrder({ order }: { order: OrderDetail })
             <dd className="num text-muted">{naira(toKobo(goods))}</dd>
           </div>
         ) : null}
+        {/*
+          The rider is paid out of the DELIVERY fee, so a quote with a large
+          service fee and a small delivery fee quietly underpays them. Shown
+          while it can still be changed rather than discovered on a payout run.
+
+          A preview only, hence "about": the server computes the real figure
+          from PLATFORM_COMMISSION_BPS (1500 = 15%, so the rider keeps 85%) and
+          the exact number appears on the Rider payout row above once saved. If
+          that commission is ever changed, this estimate drifts and the saved
+          figure stays right.
+        */}
+        {toKobo(delivery) > 0 ? (
+          <div className="flex justify-between gap-3">
+            <dt className="text-muted">Of which the rider earns</dt>
+            <dd className="num text-muted">about {naira(Math.round(toKobo(delivery) * 0.85))}</dd>
+          </div>
+        ) : null}
       </dl>
 
       {/*

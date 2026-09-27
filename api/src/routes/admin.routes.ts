@@ -6,6 +6,7 @@ import { z } from 'zod';
 
 import { badRequest, conflict, forbidden, notFound, unauthorized } from '@/lib/errors';
 import { signToken } from '@/lib/jwt';
+import { riderPayout } from '@/lib/money';
 import { hashPassword } from '@/lib/password';
 import { prisma } from '@/lib/prisma';
 import { asyncHandler, validate } from '@/middleware';
@@ -1421,14 +1422,30 @@ adminRouter.post(
         );
       }
 
+      /**
+       * The rider is paid out of the DELIVERY fee, never the service fee.
+       *
+       * That is the rule the rest of the system already follows — see
+       * computeTotals in lib/money.ts, which the app's own orders go through.
+       * Pricing an order without setting this left riderPayoutKobo at zero, so
+       * the rider earned nothing on delivery and nothing appeared in Payouts:
+       * a rider doing real work for a quietly empty wallet, discovered whenever
+       * they next looked.
+       *
+       * Sendy keeps the commission on the delivery fee plus the whole service
+       * fee. The cost of the goods is not in either number.
+       */
+      const riderPayoutKobo = riderPayout(body.deliveryFeeKobo);
+
       const updated = await tx.order.update({
         where: { id: orderId },
         data: {
           deliveryFeeKobo: body.deliveryFeeKobo,
           serviceFeeKobo: body.serviceFeeKobo,
+          riderPayoutKobo,
           totalKobo,
         },
-        select: { id: true, reference: true, status: true, totalKobo: true },
+        select: { id: true, reference: true, status: true, totalKobo: true, riderPayoutKobo: true },
       });
 
       // Only errands carry a goods budget, and only if one already exists —
@@ -1448,6 +1465,7 @@ adminRouter.post(
           label: order.totalKobo > 0 ? 'Price updated' : 'Price agreed',
           note: [
             `${naira(totalKobo)} to Sendy`,
+            `rider earns ${naira(riderPayoutKobo)}`,
             body.goodsEstimateKobo ? `goods about ${naira(body.goodsEstimateKobo)}` : null,
             body.note,
           ]
