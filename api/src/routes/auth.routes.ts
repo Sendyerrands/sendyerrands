@@ -113,7 +113,25 @@ authRouter.post(
     ]);
 
     if (emailTaken) throw badRequest('An account already uses that email. Sign in instead.');
-    if (phoneTaken) throw badRequest('An account already uses that phone number.');
+
+    /**
+     * Almost always a returning website customer, not an impostor.
+     *
+     * A booking made on the website mints a User keyed on phone, with a random
+     * unusable password. The person comes back weeks later, tries to register,
+     * and is told an account already uses their number — one they never made
+     * and cannot sign into. Without somewhere to go next, the customer who has
+     * already ordered is the only one who cannot create an account.
+     *
+     * The reset flow is that somewhere: they have an email on file and no
+     * usable password, so it sets the first one and their past bookings are
+     * waiting for them. Exactly how a vendor claims an ops-created account.
+     */
+    if (phoneTaken) {
+      throw badRequest(
+        'An account already uses that phone number. If you have booked with us before, use "Forgot password" to set a password and pick up where you left off.'
+      );
+    }
 
     const passwordHash = await hashPassword(body.password);
 
