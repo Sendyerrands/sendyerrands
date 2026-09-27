@@ -26,7 +26,15 @@ const productSchema = z.object({
   priceKobo: z.number().int().min(100, 'Price must be at least ₦1.'),
   section: z.string().max(60).optional(),
   badge: z.string().max(30).optional(),
-  imageUrl: z.string().url().optional(),
+  /**
+   * Nullable as well as optional, so a vendor can take a photo down.
+   *
+   * Optional alone means "leave it as it is" — there was no value that meant
+   * "remove it": null failed the string check and "" failed the url check. A
+   * listing whose photo was wrong, stale or simply bad could have its price and
+   * name corrected and was stuck with the picture forever.
+   */
+  imageUrl: z.string().url().nullable().optional(),
   isMarketplace: z.boolean().default(false),
   inStock: z.boolean().default(true),
 });
