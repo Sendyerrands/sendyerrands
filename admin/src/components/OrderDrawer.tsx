@@ -23,7 +23,7 @@ import type { OrderDetail, OrderStatus } from '@/lib/types';
 /**
  * Mirrors the server's transition table in `api/src/services/orders.ts`.
  *
- * The API is still the authority â€” it rejects an illegal jump â€” but offering
+ * The API is still the authority — it rejects an illegal jump — but offering
  * only legal moves means ops never picks something that is going to bounce.
  * Keep this in step if the server table changes.
  *
@@ -46,7 +46,7 @@ const TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
 /**
  * Side panel for a single order: the audit trail plus the three ops actions.
  *
- * Actions are deliberately gated on the order's own state â€” a delivered order
+ * Actions are deliberately gated on the order's own state — a delivered order
  * can't be reassigned, and a refunded one can't be refunded twice. The API
  * enforces this too; hiding the controls just stops ops hitting an error wall.
  */
@@ -155,7 +155,7 @@ function Body({
         <h4 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-muted">People</h4>
         <dl className="space-y-1.5 text-sm">
           <Row label="Customer" value={fullName(order.customer)} />
-          <Row label="Phone" value={order.customer?.phone ?? 'â€”'} />
+          <Row label="Phone" value={order.customer?.phone ?? '—'} />
           {order.vendor ? <Row label="Vendor" value={order.vendor.name} /> : null}
           <Row
             label="Rider"
@@ -191,7 +191,7 @@ function Body({
             {order.items.map((i) => (
               <li key={i.id} className="flex justify-between text-sm">
                 <span className="text-body">
-                  {i.quantity}Ã— {i.name}
+                  {i.quantity}× {i.name}
                 </span>
                 <span className="num text-ink">{naira(i.unitPriceKobo * i.quantity)}</span>
               </li>
@@ -284,7 +284,7 @@ function QuoteOrder({ order }: { order: OrderDetail })
   if (paid) {
     return (
       <p className="mt-3 text-[12.5px] text-muted">
-        Price locked â€” a payment has been recorded. Refund it first to re-price.
+        Price locked — a payment has been recorded. Refund it first to re-price.
       </p>
     );
   }
@@ -299,30 +299,65 @@ function QuoteOrder({ order }: { order: OrderDetail })
 
   return (
     <div className="mt-3 rounded-lg border border-hairline p-3">
-      <p className="mb-2 text-[12.5px] text-muted">
-        What the customer owes Sendy. {isErrand ? 'The cost of the goods is recorded separately and is paid to the merchant, not to us.' : null}
+      {/*
+        Grouped by WHO GETS THE MONEY, not by what each line is called.
+        "Service fee" reads as "the fee for this service" — i.e. the whole job —
+        and the cost of the goods was typed into it, quoting ₦71,666 for what
+        should have been a ₦15,500 delivery. That distinction is the only thing
+        this form exists to get right, so it is the first thing it says.
+      */}
+      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
+        Sendy charges
       </p>
-
       <div className="grid gap-2 sm:grid-cols-2">
-        <Field label="Delivery fee (â‚¦)">
+        <Field label="Delivery fee (₦)">
           <input value={delivery} onChange={(e) => setDelivery(e.target.value)} inputMode="decimal" className={inputClass} />
         </Field>
-        <Field label="Service fee (â‚¦)">
+        <Field label="Our service fee (₦)" hint="Sendy's cut. Not the price of anything bought.">
           <input value={service} onChange={(e) => setService(e.target.value)} inputMode="decimal" className={inputClass} />
         </Field>
       </div>
 
       {isErrand ? (
-        <div className="mt-2">
-          <Field label="Goods estimate (â‚¦)" hint="Recorded only. Never charged, and not counted as owed to Sendy.">
+        <div className="mt-4 rounded-lg bg-surface p-3">
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted">
+            The seller charges
+          </p>
+          <Field
+            label="Cost of the goods (₦)"
+            hint="Paid to the seller, or handed to the rider. Recorded here, never charged by us."
+          >
             <input value={goods} onChange={(e) => setGoods(e.target.value)} inputMode="decimal" className={inputClass} />
           </Field>
         </div>
       ) : null}
 
-      <p className="mt-3 text-sm text-body">
-        Customer owes <strong className="num text-ink">{naira(totalKobo)}</strong>
-      </p>
+      <dl className="mt-3 space-y-1 border-t border-hairline pt-3 text-sm">
+        <div className="flex justify-between gap-3">
+          <dt className="text-body">Customer pays Sendy</dt>
+          <dd className="num font-bold text-ink">{naira(totalKobo)}</dd>
+        </div>
+        {isErrand && toKobo(goods) > 0 ? (
+          <div className="flex justify-between gap-3">
+            <dt className="text-muted">Customer pays the seller</dt>
+            <dd className="num text-muted">{naira(toKobo(goods))}</dd>
+          </div>
+        ) : null}
+      </dl>
+
+      {/*
+        A service fee bigger than the goods it accompanies is nearly always the
+        product price in the wrong box. Warned, not blocked: a long delivery can
+        legitimately cost more than a small item. But the cost of being wrong is
+        a customer's card charged for someone else's shopping, so it is said out
+        loud before the button is pressed.
+      */}
+      {isErrand && toKobo(goods) > 0 && toKobo(service) > toKobo(goods) ? (
+        <p className="mt-2 rounded-lg bg-warning/10 px-3 py-2 text-[12.5px] text-warning">
+          Sendy&apos;s fee is larger than the goods. If {naira(toKobo(service))} is what the items
+          cost, it belongs under &ldquo;The seller charges&rdquo;.
+        </p>
+      ) : null}
 
       {quote.isError ? (
         <p role="alert" className="mt-2 rounded-lg bg-error/10 px-3 py-2 text-[13px] text-error">
@@ -406,7 +441,7 @@ function Actions({
                   onChange={(e) => setRiderId(e.target.value)}
                   className={inputClass}
                 >
-                  <option value="">Choose a riderâ€¦</option>
+                  <option value="">Choose a rider…</option>
                   {(riders ?? []).map((r) => (
                     <option key={r.id} value={r.id}>
                       {fullName(r)} Â· {r.isOnline ? 'online' : 'offline'} Â· {r.completedJobs} jobs
@@ -444,7 +479,7 @@ function Actions({
                 className={inputClass}
               >
                 <option value="">
-                  {allowed.length === 0 ? 'No moves left from here' : 'Choose a statusâ€¦'}
+                  {allowed.length === 0 ? 'No moves left from here' : 'Choose a status…'}
                 </option>
                 {allowed.map((s) => (
                   <option key={s} value={s}>
