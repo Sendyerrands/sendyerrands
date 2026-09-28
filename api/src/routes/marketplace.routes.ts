@@ -45,12 +45,46 @@ marketplaceRouter.get(
     const state =
       typeof req.query.state === 'string' && req.query.state !== 'All' ? req.query.state : undefined;
 
+    /**
+     * Category is the `section` a vendor already files an item under — "Rice &
+     * Grains", "Drinks". Reusing it rather than adding a column keeps the
+     * marketplace filter and the vendor's own menu headings the same list, so
+     * a vendor never has to categorise an item twice.
+     */
+    const category =
+      typeof req.query.category === 'string' && req.query.category !== 'All'
+        ? req.query.category
+        : undefined;
+
+    /**
+     * Price bounds arrive in kobo, like every other money value crossing this
+     * boundary. Anything unparseable is dropped rather than rejected: a filter
+     * is a convenience, and refusing the whole page over a stray character in
+     * a query string would be a worse answer than showing everything.
+     */
+    const toKobo = (v: unknown): number | undefined => {
+      if (typeof v !== 'string' || v.trim() === '') return undefined;
+      const n = Number(v);
+      return Number.isFinite(n) && n >= 0 ? Math.round(n) : undefined;
+    };
+    const minKobo = toKobo(req.query.minKobo);
+    const maxKobo = toKobo(req.query.maxKobo);
+
     const products = await prisma.product.findMany({
       where: {
         isMarketplace: true,
         inStock: true,
         ...(q ? { name: { contains: q, mode: 'insensitive' } } : {}),
         ...(state ? { vendor: { state } } : {}),
+        ...(category ? { section: category } : {}),
+        ...(minKobo !== undefined || maxKobo !== undefined
+          ? {
+              priceKobo: {
+                ...(minKobo !== undefined ? { gte: minKobo } : {}),
+                ...(maxKobo !== undefined ? { lte: maxKobo } : {}),
+              },
+            }
+          : {}),
       },
       // Location travels with the product. A marketplace buyer is choosing
       // between strangers, and where the item ships from decides it.
@@ -62,6 +96,28 @@ marketplaceRouter.get(
     });
 
     res.json({ data: products });
+  })
+);
+
+/**
+ * GET /marketplace/categories — the sections that actually have something in
+ * them, for the browse filter.
+ *
+ * Derived from the listings rather than kept as a fixed list, so the filter can
+ * never offer a category that returns an empty grid. A vendor inventing a new
+ * section makes it appear here the moment their first item is listed under it.
+ */
+marketplaceRouter.get(
+  '/categories',
+  asyncHandler(async (_req, res) => {
+    const rows = await prisma.product.findMany({
+      where: { isMarketplace: true, inStock: true, section: { not: null } },
+      select: { section: true },
+      distinct: ['section'],
+      orderBy: { section: 'asc' },
+    });
+
+    res.json({ data: rows.map((r) => r.section).filter((s): s is string => !!s && s.trim() !== '') });
   })
 );
 

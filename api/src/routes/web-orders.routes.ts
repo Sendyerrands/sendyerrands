@@ -9,6 +9,7 @@ import { hashPassword } from '@/lib/password';
 import { prisma } from '@/lib/prisma';
 import { deliveryCode, normalisePhone, orderReference, paymentReference, referralCode } from '@/lib/reference';
 import { asyncHandler, validate, webBookingLimiter } from '@/middleware';
+import { transitionOrder } from '@/services/orders';
 import { initializeTransaction } from '@/services/paystack';
 
 /**
@@ -355,7 +356,29 @@ webOrdersRouter.get(
          */
         deliveryCode: true,
         payments: { where: { status: 'SUCCESS' }, select: { amountKobo: true } },
-        errandDetail: { select: { task: true, pickupAddress: true } },
+        /**
+         * The errand pricing state, so the website can run the same loop the
+         * app does: the rider reports what the item actually costs and whose
+         * account to pay, and the customer accepts or walks away.
+         *
+         * merchantAccountName is Paystack's answer, never what the rider typed
+         * — see POST /rider/jobs/:id/quote. Publishing it is the entire safety
+         * property of paying a stranger's account: the customer reads the name
+         * before they transfer, and a rider entering their own number has to
+         * watch their own name appear here.
+         */
+        errandDetail: {
+          select: {
+            task: true,
+            pickupAddress: true,
+            actualItemKobo: true,
+            merchantAccountNo: true,
+            merchantAccountName: true,
+            merchantBankName: true,
+            merchantPaidAt: true,
+            paymentProofUrl: true,
+          },
+        },
         address: { select: { line1: true } },
         rider: { select: { firstName: true } },
       },
@@ -393,6 +416,41 @@ webOrdersRouter.get(
          * of these settle — so this being false is not an error state.
          */
         canPayOnline: order.totalKobo > 0 && amountDueKobo > 0 && !settled,
+
+        /**
+         * The errand's own pricing stage, mirroring the app.
+         *
+         * itemCostKobo is what the customer pays the SELLER directly — it is
+         * not part of totalKobo and Sendy never touches it. Keeping the two
+         * apart in the payload is what stops the website doing what the admin
+         * drawer once did and presenting the goods budget as a Sendy charge.
+         */
+        itemCostKobo: order.errandDetail?.actualItemKobo ?? null,
+        merchant: order.errandDetail?.merchantAccountNo
+          ? {
+              accountNumber: order.errandDetail.merchantAccountNo,
+              accountName: order.errandDetail.merchantAccountName,
+              bankName: order.errandDetail.merchantBankName,
+            }
+          : null,
+        merchantPaidAt: order.errandDetail?.merchantPaidAt ?? null,
+        paymentProofUrl: order.errandDetail?.paymentProofUrl ?? null,
+        /**
+         * Accepting means "I have transferred the item cost to that account",
+         * and the dispatch fee has to be settled first — the same ordering the
+         * app enforces, for the same reason: once the rider is told the seller
+         * is paid they collect the goods and the job is done.
+         */
+        canAcceptPrice:
+          order.status === 'PRICE_PROPOSED' &&
+          !!order.errandDetail?.merchantAccountNo &&
+          amountDueKobo === 0,
+        /**
+         * Declining is an ordinary cancel, offered only while it is still free
+         * to walk away. Once the seller has been paid there is nothing to
+         * cancel — that money is gone from Sendy's reach entirely.
+         */
+        canDecline: ['QUOTE_REQUESTED', 'PRICE_PROPOSED'].includes(order.status),
       },
     });
   })
@@ -606,6 +664,126 @@ webOrdersRouter.post(
     res.status(201).json({
       data: { authorizationUrl: init.authorization_url, amountKobo: dueKobo, reused: false },
     });
+  })
+);
+
+/**
+ * The errand loop, website side.
+ *
+ * These are the two answers only the customer can give once a rider has stood
+ * at the stall and reported the real price: yes, I have paid the seller — or
+ * no, not at that price. The app has had both since the errand flow was built;
+ * the website had neither, so a web errand reached PRICE_PROPOSED and stopped
+ * there with nothing on the page to move it.
+ *
+ * Authorised by holding the tracking link, like every other /web endpoint. The
+ * id is a random token, not a sequence, and it is the same authority that
+ * already lets the holder pay the order and read the door code.
+ */
+
+/**
+ * POST /web/orders/:trackingId/merchant-paid
+ *
+ * Records a CLAIM that the customer transferred the item cost to the seller,
+ * exactly as POST /orders/:id/merchant-paid does for the app. Sendy never sees
+ * that money — it goes bank to bank — so there is no transaction to verify
+ * against. What this gives a later dispute is a timestamp, the resolved account
+ * name the customer was shown, and their receipt.
+ */
+webOrdersRouter.post(
+  '/orders/:trackingId/merchant-paid',
+  validate(z.object({ proofUrl: z.string().url().optional() })),
+  asyncHandler(async (req, res) => {
+    const { proofUrl } = req.body as { proofUrl?: string };
+
+    const order = await prisma.order.findUnique({
+      where: { id: req.params.trackingId! },
+      select: {
+        id: true,
+        status: true,
+        type: true,
+        totalKobo: true,
+        errandDetail: { select: { merchantAccountNo: true } },
+        payments: { where: { status: 'SUCCESS' }, select: { amountKobo: true } },
+      },
+    });
+
+    if (!order) throw notFound('Order');
+    if (order.type !== 'ERRAND') throw badRequest('That order is not an errand.');
+    if (order.status !== 'PRICE_PROPOSED') {
+      throw conflict(
+        order.status === 'QUOTE_REQUESTED'
+          ? 'No rider has priced this errand yet.'
+          : 'This errand is past the payment stage.'
+      );
+    }
+    // Without a resolved merchant there is nothing the customer could have
+    // paid, and nothing a dispute could point at.
+    if (!order.errandDetail?.merchantAccountNo) {
+      throw badRequest('The rider has not provided the seller’s account yet.');
+    }
+
+    /**
+     * The dispatch fee first, the same ordering the app enforces. It is the
+     * only enforcement point there is: Sendy never touches the item money, so
+     * the fee is the entire commercial relationship, and once the rider is told
+     * the seller has been paid they collect the goods and the job is done.
+     */
+    const paidKobo = order.payments.reduce((sum, p) => sum + p.amountKobo, 0);
+    if (paidKobo < order.totalKobo) {
+      throw conflict('Pay the Sendy Errands dispatch fee first.');
+    }
+
+    await prisma.errandDetail.update({
+      where: { orderId: order.id },
+      data: { merchantPaidAt: new Date(), paymentProofUrl: proofUrl },
+    });
+
+    // No customer account behind a web booking, so the actor is the order
+    // itself rather than a signed-in person.
+    const updated = await transitionOrder(order.id, 'MERCHANT_PAID', { type: 'system', id: order.id });
+
+    res.json({ data: { status: updated.status } });
+  })
+);
+
+/**
+ * POST /web/orders/:trackingId/decline — the customer will not pay that price.
+ *
+ * An ordinary cancel, named for what the customer is actually doing. Allowed
+ * only while walking away is still free: once MERCHANT_PAID is recorded the
+ * money has left their bank for a stranger's, and cancelling there would close
+ * the order while the website pretended to have handled something it has no
+ * power over.
+ */
+webOrdersRouter.post(
+  '/orders/:trackingId/decline',
+  validate(z.object({ reason: z.string().max(300).optional() })),
+  asyncHandler(async (req, res) => {
+    const { reason } = req.body as { reason?: string };
+
+    const order = await prisma.order.findUnique({
+      where: { id: req.params.trackingId! },
+      select: { id: true, status: true },
+    });
+
+    if (!order) throw notFound('Order');
+    if (!['QUOTE_REQUESTED', 'PRICE_PROPOSED'].includes(order.status)) {
+      throw conflict(
+        order.status === 'MERCHANT_PAID'
+          ? 'You have already paid the seller for this one, and that transfer cannot be reversed from here. Contact support.'
+          : 'This errand can no longer be declined. Contact support.'
+      );
+    }
+
+    const updated = await transitionOrder(
+      order.id,
+      'CANCELLED',
+      { type: 'system', id: order.id },
+      { note: reason, extra: { cancelReason: reason ?? 'Price declined by customer' } }
+    );
+
+    res.json({ data: { status: updated.status } });
   })
 );
 
