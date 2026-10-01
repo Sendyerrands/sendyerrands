@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useMutation } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Divider } from '@/components/ui/atoms';
@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/Input';
 import { Screen, ScreenHeader, StickyBar } from '@/components/ui/Screen';
 import { ApiError } from '@/lib/api/client';
 import { authApi, type Actor } from '@/lib/api/endpoints';
+import { forgetLogin, loadLogins, rememberLogin, type SavedLogin } from '@/lib/dev-logins';
 import { colors } from '@/lib/theme';
 import { useApp } from '@/store/app';
 
@@ -60,11 +61,28 @@ export default function SignIn() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
 
+  /**
+   * Remembered sign-ins, debug builds only — see lib/dev-logins.
+   * Every helper there is a no-op outside __DEV__, so this list is simply
+   * always empty in a release build and nothing below renders.
+   */
+  const [saved, setSaved] = useState<SavedLogin[]>([]);
+  const refreshSaved = useCallback(() => {
+    loadLogins().then(setSaved).catch(() => setSaved([]));
+  }, []);
+  useEffect(refreshSaved, [refreshSaved]);
+
+  // Only the accounts for the door being used. A rider's credentials on the
+  // customer sign-in would fill the form with something the server refuses.
+  const forThisActor = saved.filter((l) => l.actor === actor);
+
   const valid = email.trim().length > 3 && password.length > 0;
 
   const login = useMutation({
     mutationFn: () => authApi.login({ email: email.trim(), password, role: actor }),
     onSuccess: async (session) => {
+      // Only ever after a login the server accepted, so a typo is never stored.
+      await rememberLogin(email.trim(), password, actor);
       await signIn(session.token, actor);
       if (actor === 'vendor') return router.replace('/vendor-app');
       if (actor === 'rider') return router.replace('/rider');
@@ -93,6 +111,64 @@ export default function SignIn() {
         <Text className="text-body text-[15px] mt-2.5 mb-8 leading-[22px]">
           Sign in to your {label}.
         </Text>
+
+        {/*
+          Saved sign-ins — debug builds only.
+
+          Tapping one fills both fields and signs in, which is the whole point:
+          switching between the customer and rider flows a dozen times an hour
+          otherwise means retyping an email and a password every single time.
+
+          Labelled as a dev affordance rather than styled like a product
+          feature, so nobody mistakes it for something customers will see.
+        */}
+        {forThisActor.length ? (
+          <View className="mb-7">
+            <Text className="text-muted text-[11px] font-semibold tracking-wide mb-2">
+              SAVED FOR TESTING · DEV ONLY
+            </Text>
+
+            {forThisActor.map((l) => (
+              <View
+                key={`${l.actor}:${l.email}`}
+                className="flex-row items-center bg-surface rounded-md mb-2 pr-2"
+              >
+                <Pressable
+                  onPress={() => {
+                    setError(null);
+                    setEmail(l.email);
+                    setPassword(l.password);
+                    login.mutate();
+                  }}
+                  disabled={login.isPending}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Sign in as ${l.email}`}
+                  className="flex-1 flex-row items-center px-3 py-3 active:opacity-70"
+                >
+                  <Ionicons name="person-circle-outline" size={20} color={colors.body} />
+                  <Text className="text-ink text-[14px] ml-2.5 flex-1" numberOfLines={1}>
+                    {l.email}
+                  </Text>
+                  <Ionicons name="arrow-forward" size={16} color={colors.muted} />
+                </Pressable>
+
+                {/* Forgetting one has to be possible, or a mistyped-then-fixed
+                    account sits in the list for good. */}
+                <Pressable
+                  onPress={() => {
+                    forgetLogin(l.email, l.actor).then(refreshSaved);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Forget ${l.email}`}
+                  hitSlop={8}
+                  className="w-8 h-8 items-center justify-center"
+                >
+                  <Ionicons name="close" size={15} color={colors.muted} />
+                </Pressable>
+              </View>
+            ))}
+          </View>
+        ) : null}
 
         <Input
           label="Email"
