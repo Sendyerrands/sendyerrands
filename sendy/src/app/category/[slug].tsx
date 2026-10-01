@@ -8,6 +8,7 @@ import { Chip, Divider, EmptyState } from '@/components/ui/atoms';
 import { Button, IconButton } from '@/components/ui/Button';
 import { Screen } from '@/components/ui/Screen';
 import { useVendors } from '@/lib/api/hooks';
+import { useApp } from '@/store/app';
 import { colors, shadow } from '@/lib/theme';
 
 const TITLES: Record<string, string> = {
@@ -17,8 +18,15 @@ const TITLES: Record<string, string> = {
   shops: 'Shops',
   pharmacy: 'Pharmacies',
   markets: 'Local markets',
+  food: 'Food',
   bills: 'Bills & top-ups',
 };
+
+/** Cuisine tags that mean "a cooked meal", for the Food category. */
+const FOOD_TAGS = new Set([
+  'Nigerian', 'Swallow', 'Soups', 'Local', 'Rice & Grains',
+  'Grills', 'Suya', 'Small chops', 'Continental', 'Fast food', 'Pastries', 'Drinks',
+]);
 
 const SORTS = ['Recommended', 'Fastest', 'Top rated', 'Lowest fee'];
 const RATINGS = ['Any', '4.0+', '4.5+', '4.8+'];
@@ -34,11 +42,22 @@ export default function CategoryListing() {
 
   const title = TITLES[slug ?? ''] ?? 'Browse';
 
+  const { activeAddress } = useApp();
   const { data: vendors = [] } = useVendors();
   let list = [...vendors];
   if (slug === 'discounts') list = list.filter((v) => v.discount);
   if (slug === 'pharmacy') list = list.filter((v) => v.tags.includes('Pharmacy'));
   if (slug === 'markets') list = list.filter((v) => v.tags.includes('Foodstuff'));
+  /*
+   * Food is prepared meals, which no single tag marks.
+   *
+   * Vendors tag themselves by cuisine — Nigerian, Swallow, Suya, Soups — so
+   * matching one string would show one restaurant and hide the rest. Matching
+   * the set keeps the page honest as vendors are added, and deliberately
+   * excludes Foodstuff/Grains: a sack of rice belongs to Markets, and someone
+   * who tapped Food wants dinner, not ingredients.
+   */
+  if (slug === 'food') list = list.filter((v) => v.tags.some((t) => FOOD_TAGS.has(t)));
   if (openOnly) list = list.filter((v) => v.open);
   if (rating !== 'Any') list = list.filter((v) => v.rating >= parseFloat(rating));
   if (sort === 'Fastest') list.sort((a, b) => a.etaMin - b.etaMin);
@@ -78,8 +97,18 @@ export default function CategoryListing() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 28 }} showsVerticalScrollIndicator={false}>
+        {/*
+          "delivering to Victoria Island" was hardcoded here, on every category
+          page, for every customer. It named a destination nobody had chosen —
+          a line that is confidently wrong is worse than no line, because it
+          reads as a setting that has been applied.
+
+          It now names the address actually selected, and says nothing at all
+          when none is.
+        */}
         <Text className="text-muted text-[13px] mb-4">
-          {list.length} vendor{list.length === 1 ? '' : 's'} · delivering to Victoria Island
+          {list.length} vendor{list.length === 1 ? '' : 's'}
+          {activeAddress?.line1 ? ` · delivering to ${activeAddress.line1}` : ''}
         </Text>
 
         {list.length ? (

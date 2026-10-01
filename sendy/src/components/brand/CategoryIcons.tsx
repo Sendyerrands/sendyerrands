@@ -97,6 +97,26 @@ export const MarketsIcon = ({ size, main, soft, ...rest }: IconProps) => (
   </Frame>
 );
 
+/**
+ * Food — a covered dish on a plate.
+ *
+ * A cloche rather than cutlery: a knife and fork at 30px is two thin strokes
+ * that disappear next to the solid shapes the rest of the set uses, and reads
+ * as "restaurant" rather than "food on its way to you". The dome carries the
+ * tint, the plate underlines it.
+ */
+export const FoodIcon = ({ size, main, soft, ...rest }: IconProps) => (
+  <Frame size={size} {...rest}>
+    {/* The cloche — a half-disc sitting on its rim. */}
+    <Path d="M4 14.5a8 8 0 0 1 16 0z" fill={soft} />
+    {/* Handle on top, so the dome does not read as a plain hill. */}
+    <Circle cx="12" cy="5.4" r="1.5" fill={main} />
+    {/* Rim and plate, drawn as two weights so they stay apart when small. */}
+    <Path d="M3 15.1h18" stroke={main} strokeWidth="2.1" strokeLinecap="round" />
+    <Path d="M6 19.1h12" stroke={main} strokeWidth="2.1" strokeLinecap="round" />
+  </Frame>
+);
+
 /** Bills — a wallet with its clasp. */
 export const BillsIcon = ({ size, main, soft, ...rest }: IconProps) => (
   <Frame size={size} {...rest}>
@@ -136,6 +156,9 @@ export const CATEGORY_PALETTE: Record<string, { tint: string; main: string; soft
   pharmacy: { tint: '#DFEBFF', main: '#1B4FA8', soft: '#5D9BEE' },
   markets: { tint: '#DDF2E6', main: '#12703F', soft: '#4FBE84' },
   bills: { tint: '#D8F0E9', main: '#0A6E5C', soft: '#3FB39B' },
+  // Warm red-orange: the appetite colour, and distinct from Shops' orange and
+  // Marketplace's red at tile size.
+  food: { tint: '#FFE6DA', main: '#C2410C', soft: '#FB8A5C' },
   packages: { tint: '#E9DEFF', main: '#4E31C4', soft: '#9B84F5' },
 };
 
@@ -147,6 +170,7 @@ const ICONS: Record<string, (p: IconProps) => React.ReactElement> = {
   pharmacy: PharmacyIcon,
   markets: MarketsIcon,
   bills: BillsIcon,
+  food: FoodIcon,
   packages: PackagesIcon,
 };
 

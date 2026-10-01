@@ -51,6 +51,18 @@ export function ErrandQuotePanel({
   const checkout = useCheckout();
   const confirm = useConfirmMerchantPaid(orderId);
 
+  /**
+   * A fee of zero is already settled.
+   *
+   * feePaid alone asks "is there a successful payment", which is never true
+   * when there is nothing to charge — so an errand whose dispatch fee had not
+   * been set yet offered the customer a "Pay delivery fee ₦0" button that no
+   * amount of tapping could satisfy, and the confirm control underneath it was
+   * unreachable. The rider sat waiting on a price the customer had no way to
+   * accept.
+   */
+  const feeSettled = feePaid || dispatchKobo <= 0;
+
   const copy = async (value: string, what: 'account' | 'amount') => {
     await Clipboard.setStringAsync(value);
     setCopied(what);
@@ -132,7 +144,7 @@ export function ErrandQuotePanel({
         <Text className="text-ink text-[15px] font-semibold">
           {naira(koboToNaira(dispatchKobo))}
         </Text>
-        {feePaid ? (
+        {feeSettled ? (
           <Ionicons name="checkmark-circle" size={17} color={colors.success} style={{ marginLeft: 8 }} />
         ) : null}
       </View>
@@ -140,7 +152,7 @@ export function ErrandQuotePanel({
       {error ? <Text className="text-error text-[13px] mt-3">{error}</Text> : null}
 
       <View className="mt-4">
-        {!feePaid ? (
+        {!feeSettled ? (
           <Button
             title={checkout.isPending ? 'Opening…' : 'Pay delivery fee'}
             loading={checkout.isPending}
@@ -177,7 +189,7 @@ export function ErrandQuotePanel({
         )}
       </View>
 
-      {feePaid ? (
+      {feeSettled ? (
         <Text className="text-muted text-[12px] mt-2.5 text-center">
           Only tap this once the transfer has actually left your account.
         </Text>

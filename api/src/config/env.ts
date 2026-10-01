@@ -24,6 +24,8 @@ const schema = z.object({
    * below.
    */
   OTP_DEV_MODE: z.string().optional(),
+  /** Dev-only escape hatch for bank resolution — see env.BANK_RESOLVE_DEV_BYPASS. */
+  BANK_RESOLVE_DEV_BYPASS: z.string().optional(),
   OTP_DEV_CODE: z.string().default('123456'),
 
   /** Reset codes per 15 minutes. Unset means 5 in production, 100 in development. */
@@ -116,6 +118,26 @@ export const env = {
    */
   OTP_DEV_MODE:
     parsed.data.OTP_DEV_MODE !== undefined ? parsed.data.OTP_DEV_MODE === 'true' : !isProd,
+
+  /**
+   * Let a rider quote an errand when Paystack cannot resolve the seller's
+   * account — development only.
+   *
+   * Resolving is the entire safety property of paying a stranger's account:
+   * the customer reads back a name Paystack returned, not one the rider typed.
+   * Skipping it in production would leave a rider free to put their own number
+   * in front of a customer under any name they like.
+   *
+   * So this is hard-gated on NODE_ENV rather than on the flag alone. Setting
+   * BANK_RESOLVE_DEV_BYPASS=true against production does nothing — the `&&
+   * !isProd` is the guarantee, and the flag only decides whether a local run
+   * without working Paystack credentials is allowed to continue.
+   */
+  BANK_RESOLVE_DEV_BYPASS:
+    !isProd &&
+    (parsed.data.BANK_RESOLVE_DEV_BYPASS !== undefined
+      ? parsed.data.BANK_RESOLVE_DEV_BYPASS === 'true'
+      : false),
 };
 
 /** True when the integration has real credentials configured. */

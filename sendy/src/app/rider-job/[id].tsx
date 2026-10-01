@@ -55,6 +55,20 @@ export default function RiderJobDetail() {
   // rider; the others carry the vendor's own delivery charge.
   const canBid = data?.raw.type === 'ERRAND' || data?.raw.type === 'PACKAGE';
 
+  /**
+   * An errand nobody has priced yet.
+   *
+   * riderPayoutKobo is a share of the delivery fee, and on a QUOTE_REQUESTED
+   * errand there is no fee yet — the whole point is that the rider stands in
+   * the market and reports what it costs. So the payout is legitimately 0 here,
+   * and every figure derived from it read as an offer of nothing: "YOU'LL EARN
+   * ₦0", "Accept — ₦0", "Ask for more than ₦0". A rider looking at that screen
+   * is being asked to take a job for free.
+   *
+   * It is not a price. It is an unknown, and the screen has to say so.
+   */
+  const unpricedErrand = data?.raw.type === 'ERRAND' && (data?.raw.riderPayoutKobo ?? 0) <= 0;
+
   if (!job) {
     return (
       <Screen edges={[]} className="bg-surface">
@@ -90,8 +104,16 @@ export default function RiderJobDetail() {
         <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 130 }} showsVerticalScrollIndicator={false}>
           <View className="flex-row items-start">
             <View className="flex-1">
-              <Text className="text-muted text-[11px] font-semibold tracking-wide">YOU&apos;LL EARN</Text>
-              <Text className="text-ink text-[32px] font-bold mt-1">{naira(job.payout)}</Text>
+              <Text className="text-muted text-[11px] font-semibold tracking-wide">
+                {unpricedErrand ? 'YOU SET THE PRICE' : "YOU'LL EARN"}
+              </Text>
+              {unpricedErrand ? (
+                <Text className="text-ink text-[20px] font-bold mt-1 leading-[26px]">
+                  Not priced yet
+                </Text>
+              ) : (
+                <Text className="text-ink text-[32px] font-bold mt-1">{naira(job.payout)}</Text>
+              )}
             </View>
             <View className="flex-row items-center bg-pink-50 rounded-full px-3 py-1.5 mt-1">
               <Ionicons name="cube-outline" size={13} color={colors.pink[600]} />
@@ -227,7 +249,13 @@ export default function RiderJobDetail() {
         ) : (
           <>
             <Button
-              title={accept.isPending ? 'Claiming…' : `Accept — ${naira(job.payout)}`}
+              title={
+                accept.isPending
+                  ? 'Claiming…'
+                  : unpricedErrand
+                    ? 'Accept & price it'
+                    : `Accept — ${naira(job.payout)}`
+              }
               iconRight="arrow-forward"
               loading={accept.isPending}
               // The job has to be claimed on the SERVER before the active screen
@@ -245,7 +273,10 @@ export default function RiderJobDetail() {
                 belongs to the vendor and was quoted to the customer at
                 checkout — offering to reprice it would be a button the server
                 refuses. */}
-            {canBid ? (
+            {/* Bidding needs a number to bid against. On an unpriced errand
+                there isn't one yet — the rider names the price after they
+                accept, so "ask for more than ₦0" is asking more than what. */}
+            {canBid && !unpricedErrand ? (
               <>
                 <View className="h-2" />
                 <Button title="Ask for more" variant="text" onPress={() => setBidding(true)} />

@@ -55,6 +55,22 @@ export function SlideToConfirm({
   const lockedRef = useRef(false);
   maxRef.current = Math.max(0, trackWidth - KNOB - PADDING * 2);
 
+  /**
+   * The handler, kept fresh.
+   *
+   * The PanResponder below is built once in a ref, so everything it closes over
+   * is frozen at first render — including `onConfirm`. The callers pass an
+   * arrow function that reads component state, so the frozen copy kept seeing
+   * the state as it was when the control mounted: on the delivery step that
+   * meant submitting the delivery code the rider had typed *before* the slider
+   * appeared, which is to say an empty one.
+   *
+   * Reading through a ref that every render updates keeps the responder stable
+   * and the handler current.
+   */
+  const confirmRef = useRef(onConfirm);
+  confirmRef.current = onConfirm;
+
   const settle = (to: number, then?: () => void) =>
     Animated.spring(x, {
       toValue: to,
@@ -96,7 +112,21 @@ export function SlideToConfirm({
          */
         if (max > 0 && travelled >= max * 0.7) {
           lockedRef.current = true;
-          settle(max, onConfirm);
+          /**
+           * Animate, then act — as two separate things.
+           *
+           * This used to pass the handler as the spring's completion callback,
+           * which made confirming conditional on an animation finishing. A
+           * spring that is interrupted, or whose callback is dropped because
+           * the view detached, then loses the action entirely: the knob slides,
+           * the gesture looks accepted, and nothing is ever sent. The rider has
+           * no way to tell that from a slow network.
+           *
+           * The movement is decoration. The action is the point, so it does not
+           * wait on the decoration.
+           */
+          settle(max);
+          confirmRef.current();
         } else {
           settle(0);
         }

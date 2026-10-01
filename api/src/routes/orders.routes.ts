@@ -554,11 +554,27 @@ ordersRouter.post(
      * job is effectively done. Letting that happen unpaid means doing the work
      * for free and chasing it afterwards.
      */
-    const paid = await prisma.payment.findFirst({
+    /**
+     * Compare what is owed against what has been paid — do not demand a
+     * payment row.
+     *
+     * Requiring a SUCCESS payment deadlocked every errand whose dispatch fee
+     * was still 0: there is nothing to charge, so no payment can ever succeed,
+     * so the customer could never confirm, so the rider waited on a screen that
+     * would never change. The customer's only control read "Pay delivery fee
+     * ₦0" and could not be satisfied by any amount of tapping.
+     *
+     * A fee of zero is a settled fee. What matters is the outstanding balance,
+     * which is the same rule the web endpoint already applies.
+     */
+    const settled = await prisma.payment.aggregate({
       where: { orderId: order.id, status: 'SUCCESS' },
-      select: { id: true },
+      _sum: { amountKobo: true },
     });
-    if (!paid) throw conflict('Pay the Sendy Errands dispatch fee first.');
+    const paidKobo = settled._sum.amountKobo ?? 0;
+    if (paidKobo < order.totalKobo) {
+      throw conflict('Pay the Sendy Errands dispatch fee first.');
+    }
 
     await prisma.errandDetail.update({
       where: { orderId: order.id },

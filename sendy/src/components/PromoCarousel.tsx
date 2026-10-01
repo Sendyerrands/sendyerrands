@@ -35,6 +35,9 @@ const IMAGE_RATIO: Record<string, number> = {
   'promo-1': 2168 / 699, // 3.102
   'promo-2': 2170 / 725, // 2.993
   'promo-3': 2098 / 750, // 2.797
+  // Composed at exactly the slide ratio, so it fills edge to edge with no
+  // letterboxing — the teal in the artwork and `bg` are the same colour.
+  'promo-4': 2100 / 700, // 3.000
 };
 
 /** Side inset — the banner is a rounded card, not a full-bleed strip. */
@@ -54,6 +57,7 @@ const PROMO_IMAGES: Record<string, ImageSource | number> = {
   'promo-1': require('../../assets/images/promo-errands.png'),
   'promo-2': require('../../assets/images/promo-market.png'),
   'promo-3': require('../../assets/images/promo-wallet.png'),
+  'promo-4': require('../../assets/images/promo-bills.png'),
 };
 
 /**
@@ -188,8 +192,13 @@ function PromoCopy({
 
       <Pressable
         onPress={onPress}
-        accessibilityRole="button"
-        accessibilityLabel={`${promo.cta} — ${promo.title}`}
+        disabled={promo.comingSoon}
+        // "Coming soon" is a label, not an action — announcing it as a button
+        // promises something to tap.
+        accessibilityRole={promo.comingSoon ? 'text' : 'button'}
+        accessibilityLabel={
+          promo.comingSoon ? `${promo.title}. ${promo.cta}.` : `${promo.cta} — ${promo.title}`
+        }
         style={{
           backgroundColor: promo.ctaBg,
           marginTop: Math.round(band * GAP_SUB_PILL),
@@ -260,8 +269,10 @@ export function PromoCarousel({ onPress }: { onPress?: (id: string) => void }) {
     if (next !== index) setIndex(next);
   };
 
-  const go = (promoId: string, href: string) => {
+  const go = (promoId: string, href?: string) => {
     if (onPress) return onPress(promoId);
+    // A slide with nowhere to go stays put rather than pushing an empty route.
+    if (!href) return;
     router.push(href as never);
   };
 
@@ -310,16 +321,28 @@ export function PromoCarousel({ onPress }: { onPress?: (id: string) => void }) {
           >
             <Pressable
               onPress={() => go(promo.id, promo.href)}
-              accessibilityRole="button"
+              // Not a button when there is nowhere to go. A screen reader
+              // announcing "button" on a slide that cannot be activated is the
+              // same lie the old Bills tile told.
+              accessibilityRole={promo.comingSoon ? 'image' : 'button'}
               accessibilityLabel={promo.title}
+              disabled={promo.comingSoon}
               style={{ backgroundColor: promo.bg, aspectRatio: SLIDE_RATIO }}
               className="rounded-lg overflow-hidden"
             >
-              <Image
-                source={PROMO_IMAGES[promo.id] ?? PROMO_IMAGES['promo-1']}
-                style={{ width: '100%', height: '100%' }}
-                contentFit="contain"
-              />
+              {/*
+                Artwork only where artwork exists.
+                The fallback used to be promo-1's illustration, which would put
+                a rider on a slide about paying light bills. A slide with none
+                shows its background colour, which the copy is designed against.
+              */}
+              {PROMO_IMAGES[promo.id] ? (
+                <Image
+                  source={PROMO_IMAGES[promo.id]!}
+                  style={{ width: '100%', height: '100%' }}
+                  contentFit="contain"
+                />
+              ) : null}
             </Pressable>
 
             <PromoCopy

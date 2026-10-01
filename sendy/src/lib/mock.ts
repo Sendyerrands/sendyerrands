@@ -608,7 +608,11 @@ export type Promo = {
   id: string;
   /** Accessibility label for the whole slide. */
   title: string;
-  href: string;
+  /**
+   * Where tapping goes. Absent on a slide that is advertising something not
+   * built yet — see `comingSoon`.
+   */
+  href?: string;
   bg: string;
   headline: string;
   sub?: string;
@@ -624,6 +628,14 @@ export type Promo = {
   ctaBg: string;
   ctaTextColor: string;
   safe: { left: number; right: number; top: number; bottom: number };
+  /**
+   * Announces something that does not exist yet.
+   *
+   * The slide still renders and still carries its CTA wording, but nothing is
+   * pressable — a banner that navigates to an empty screen is the same defect
+   * as a button that does nothing, and this app has had that reported twice.
+   */
+  comingSoon?: boolean;
 };
 
 /** theme.ts `colors.pink[600]`, inlined so this data module stays import-free. */
@@ -690,6 +702,45 @@ export const PROMOS: Promo[] = [
     ctaTextColor: '#FFFFFF',
     safe: { left: 0.06, right: 0.7, top: 0.1, bottom: 0.9 },
   },
+  {
+    /**
+     * Bills, where the home tile used to be.
+     *
+     * It moved here because a grid tile has to be tappable to look right, and
+     * this one had nothing behind it. A carousel slide can say "not yet"
+     * without looking broken: it is advertising, and advertising something
+     * forthcoming is a normal thing for a banner to do.
+     *
+     * The network marks keep their own transparent background, so the slide
+     * colour shows through them. That constrains the slide rather than the
+     * artwork: Glo's and 9mobile's greens and MTN's blue are drawn for a light
+     * ground and sink into a saturated one, so this banner goes pale where the
+     * other three go deep, and takes dark ink instead of white.
+     */
+    id: 'promo-4',
+    title: 'Bills and top-ups, coming soon',
+    comingSoon: true,
+    // The bills tint from CATEGORY_PALETTE, so the pillar keeps one identity
+    // across the grid and the carousel.
+    bg: '#D8F0E9',
+    headline: 'Airtime, data,\nlight bills.',
+    /**
+     * Short because the sub renders on a single line and clips rather than
+     * wraps. "Pay them all from your wallet" ran past the artwork panel and
+     * came out as "…from your wall…", which is worse than saying less.
+     */
+    sub: 'Pay from your wallet.',
+    cta: 'Coming soon',
+    // Dark ink: this is the one pale banner, so white would vanish.
+    textColor: '#0A4A3E',
+    subColor: 'rgba(10,74,62,0.72)',
+    // Quiet against the tint rather than the brand pink: a bright CTA on a
+    // slide that cannot be tapped is an invitation the slide has to refuse.
+    ctaBg: 'rgba(10,110,92,0.14)',
+    ctaTextColor: '#0A4A3E',
+    // Ends before the logos start (x = 0.533 of the artwork).
+    safe: { left: 0.06, right: 0.50, top: 0.1, bottom: 0.9 },
+  },
 ];
 
 export type Category = {
@@ -724,13 +775,15 @@ export const CATEGORIES: Category[] = [
    */
   { slug: 'packages', label: 'Packages', icon: 'cube-outline', href: '/package' },
   /**
-   * Last on purpose, and no route on purpose. Bills had a chevron and a
-   * category page with nothing behind it; a tile that opens an empty screen is
-   * worse than one that says it is not ready. Keeping the only inert tile at
-   * the end means the grid reads as five things that work rather than drawing
-   * the eye to the one that does not.
+   * Food took the slot Bills was sitting in.
+   *
+   * Bills was the one inert tile on the grid — a chevron over a category page
+   * with nothing behind it. Food is the opposite: three prepared-food vendors
+   * are already live and were only reachable by scrolling the home feed or
+   * searching, which is a strange gap on a delivery app. Bills keeps its place
+   * in the product as a carousel slide that says plainly it is not ready.
    */
-  { slug: 'bills', label: 'Bills', icon: 'reader-outline', comingSoon: true },
+  { slug: 'food', label: 'Food', icon: 'restaurant-outline', href: '/category/food' },
 ];
 
 /*

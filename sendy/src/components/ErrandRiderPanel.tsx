@@ -184,6 +184,26 @@ export function ErrandRiderPanel({
         {error ? <Text className="text-error text-[13px] mb-3">{error}</Text> : null}
 
         {/*
+          Say so when it worked.
+
+          On the first quote the panel changes state underneath the rider, so
+          success is obvious. A re-quote goes PRICE_PROPOSED → PRICE_PROPOSED:
+          the server accepts it, nothing on screen moves, and the only
+          reasonable conclusion is that the button is broken. It was reported
+          as exactly that.
+        */}
+        {quote.isSuccess && !error ? (
+          <View className="flex-row items-start bg-success/10 rounded-md p-3 mb-3">
+            <Ionicons name="checkmark-circle" size={16} color={colors.success} />
+            <Text className="text-body text-[12.5px] ml-2 flex-1 leading-[17px]">
+              Price sent. The customer has been asked to pay the seller
+              {priceNaira > 0 ? ` ${naira(priceNaira)}` : ''} — you&apos;ll be told when they
+              confirm.
+            </Text>
+          </View>
+        ) : null}
+
+        {/*
           Worth the rider seeing plainly: the name on this account goes to the
           customer, and it is the thing that makes a wrong number visible.
         */}

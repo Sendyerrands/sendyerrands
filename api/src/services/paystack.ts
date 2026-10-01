@@ -308,6 +308,27 @@ export async function resolveAccount(accountNumber: string, bankCode: string) {
     const status = (err.details as { upstreamStatus?: number } | undefined)?.upstreamStatus;
     console.error(`[paystack] account resolve failed (upstream ${status}): ${err.message}`);
 
+    /**
+     * Development escape hatch, so the errand flow can be walked end to end on
+     * a machine with no working Paystack credentials.
+     *
+     * The account name is the one thing a customer is asked to trust, so this
+     * does NOT invent a plausible one. It returns a name that reads as broken
+     * wherever it surfaces — on the tracking page, in the admin drawer, in a
+     * dispute — because a dev-mode order that looks indistinguishable from a
+     * verified one is worse than no bypass at all.
+     *
+     * env.BANK_RESOLVE_DEV_BYPASS is already false in production; this cannot
+     * be switched on there by setting the variable.
+     */
+    if (env.BANK_RESOLVE_DEV_BYPASS) {
+      console.warn(
+        `[paystack] DEV BYPASS — accepting unverified account ${accountNumber} (bank ${bankCode}). ` +
+          'This never happens in production.'
+      );
+      return { accountNumber, accountName: 'UNVERIFIED — DEV MODE' };
+    }
+
     if (status === 429) {
       /**
        * Paystack's own wording, not ours.
@@ -326,6 +347,26 @@ export async function resolveAccount(accountNumber: string, bankCode: string) {
         503,
         'BANK_LOOKUP_UNAVAILABLE',
         "We couldn't reach your bank to check that account. Nothing is wrong with your details — try again in a moment."
+      );
+    }
+
+    /**
+     * 401/403 is OUR credential, never their digits.
+     *
+     * A missing, malformed, revoked or wrong-mode secret key makes Paystack
+     * reject the request before it ever looks at the account number — and
+     * falling through to "check the number" tells a rider holding their own
+     * correct account details that they are wrong. They then retype a number
+     * that was never the problem, and the real fault (a key that needs
+     * rotating) stays invisible because nobody is looking at the server log.
+     *
+     * The rider is told plainly it is not them; the operator gets the detail.
+     */
+    if (status === 401 || status === 403) {
+      throw new AppError(
+        503,
+        'BANK_LOOKUP_UNAVAILABLE',
+        "We can't check bank accounts right now — this is on us, not your details. Please try again shortly."
       );
     }
 
