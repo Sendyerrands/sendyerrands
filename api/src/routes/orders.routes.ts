@@ -430,6 +430,9 @@ ordersRouter.get(
         items: true,
         errandDetail: true,
         packageDetail: true,
+        // The provider travels with it, so the customer's screen can name who
+        // is coming without a second request.
+        serviceDetail: { include: { provider: true } },
         events: { orderBy: { createdAt: 'asc' } },
         rider: {
           select: { id: true, firstName: true, lastName: true, plateNumber: true, rating: true, phone: true },

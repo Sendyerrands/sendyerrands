@@ -31,6 +31,7 @@ enum OtpPurpose {
   CUSTOMER_PASSWORD_RESET
   RIDER_PASSWORD_RESET
   VENDOR_PASSWORD_RESET
+  PROVIDER_PASSWORD_RESET
 }
 
 enum RiderStatus {
@@ -72,6 +73,21 @@ enum OrderType {
   MARKETPLACE
   ERRAND
   PACKAGE
+  /// Someone comes to you and does a job — a barber, a cleaner, a plumber.
+  /// Shares the errand's negotiation machinery: the provider names a price
+  /// once they know what the job is, and the customer accepts or walks away.
+  SERVICE
+}
+
+/// How a service provider gets to the customer.
+///
+/// Not cosmetic — it is the one thing Sendy actually charges for on a service
+/// booking, and the customer is choosing between cheap-and-exposed and
+/// dearer-but-covered. A barber with clippers can ride; a cleaner with
+/// equipment, or anyone travelling in the rain, cannot.
+enum ArrivalMode {
+  BIKE
+  CAR
 }
 
 /// Where the order came in from. The app was the only channel until the
@@ -441,6 +457,7 @@ model Order {
   payments      Payment[]
   errandDetail  ErrandDetail?
   packageDetail PackageDetail?
+  serviceDetail ServiceDetail?
   request         MarketplaceRequest?
   review          Review?
   supportRequests SupportRequest[]
@@ -605,6 +622,110 @@ model ErrandDetail {
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   @@map("errand_details")
+}
+
+/// A person who comes to you and does a job.
+///
+/// Deliberately its own model rather than a flag on Vendor. A vendor sells
+/// stock from a shopfront with a menu and a delivery fee; a provider sells an
+/// hour of their time, has no inventory, and cannot quote until they know what
+/// the job is. Forcing both through one table would mean half its columns are
+/// meaningless on every row.
+model ServiceProvider {
+  id          String  @id @default(cuid())
+  name        String
+  slug        String  @unique
+  /// "Barber", "Cleaning", "Plumbing" — the browse filter, and the one thing a
+  /// customer picks before anything else.
+  category    String
+  /// What they do, in their own words, for the listing.
+  bio         String?
+  /// Skills shown as chips: ["Fades", "Beard trim"].
+  tags        String[]
+  area        String?
+  state       String  @default("Lagos")
+  phone       String? @unique
+  email       String? @unique
+  /// Null until they claim the account, exactly like Vendor — ops creates the
+  /// provider first and the password-reset flow hands it over.
+  passwordHash String?
+
+  rating      Float   @default(5)
+  ratingCount Int     @default(0)
+  avatarUrl   String?
+
+  /// What Sendy charges to get them to the door, by how they travel. Held per
+  /// provider rather than globally because a provider two streets away and one
+  /// across the lagoon do not cost the same to send.
+  bikeFeeKobo Int     @default(100000)
+  carFeeKobo  Int     @default(250000)
+  /// Some jobs cannot go by bike at all — a cleaner with a vacuum, a plumber
+  /// with pipe. Set false and the bike option is not offered.
+  canTravelByBike Boolean @default(true)
+
+  /// Roughly how long the job takes, so the customer knows what they are
+  /// blocking out. Not a price input — the provider still quotes.
+  typicalMinMinutes Int @default(30)
+  typicalMaxMinutes Int @default(60)
+
+  isVerified  Boolean  @default(false)
+  /// Accepting work right now. The provider's own toggle.
+  isAvailable Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orders ServiceDetail[]
+
+  @@index([category])
+  @@index([state, category])
+  @@map("service_providers")
+}
+
+/// The service half of an order, mirroring ErrandDetail.
+model ServiceDetail {
+  id         String @id @default(cuid())
+  orderId    String @unique
+  providerId String
+
+  /// What the customer wants done, in their words.
+  task    String
+  details String?
+  /// Where the provider is going.
+  address String
+  landmark String?
+
+  /// How they travel, and what Sendy charged for it. The fee is copied here at
+  /// booking rather than read back from the provider, so a later price change
+  /// cannot rewrite what someone was already charged.
+  arrivalMode    ArrivalMode
+  arrivalFeeKobo Int
+
+  /// When the customer wants them. Null means as soon as possible.
+  scheduledFor DateTime?
+
+  /// What the customer expects to pay, before anyone has seen the job. Never
+  /// charged — it is there so a provider can judge whether to accept.
+  budgetKobo Int?
+  /// What the provider says the job costs, once they know what it is. Paid to
+  /// the provider directly; Sendy never touches it.
+  quotedKobo Int?
+  /// The customer's claim that they have paid the provider. Sendy cannot
+  /// verify it — the money never passes through — so this is a timestamp and
+  /// an optional receipt, which is most of what a dispute needs.
+  paidProviderAt  DateTime?
+  paymentProofUrl String?
+
+  /// The provider's two pings: on the way, and done.
+  enRouteAt   DateTime?
+  completedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  order    Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  provider ServiceProvider @relation(fields: [providerId], references: [id])
+
+  @@index([providerId])
+  @@map("service_details")
 }
 
 model PackageDetail {

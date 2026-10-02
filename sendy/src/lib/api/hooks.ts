@@ -22,8 +22,9 @@ import {
 } from './storage';
 
 import {
-  marketplaceApi, meApi, ordersApi, paymentsApi, riderApi, vendorApi, vendorApplicationsApi, vendorsApi,
+  marketplaceApi, meApi, ordersApi, paymentsApi, riderApi, servicesApi, vendorApi, vendorApplicationsApi, vendorsApi,
 } from './endpoints';
+import type { ServiceBooking } from './endpoints';
 import type { VendorProductBody } from './endpoints';
 import type { VendorApplicationBody } from './endpoints';
 import type { TopupResult } from './endpoints';
@@ -1058,6 +1059,72 @@ export function useConfirmMerchantPaid(orderId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (proofUrl?: string) => ordersApi.merchantPaid(orderId, proofUrl, token!),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['order', orderId] });
+      qc.invalidateQueries({ queryKey: ['orders'] });
+    },
+  });
+}
+
+
+/* ── Services ─────────────────────────────────────────────────────────
+   Browsing is public; booking and the negotiation that follows are not. */
+
+export function useServiceProviders(q?: string, category?: string) {
+  const { token } = useApp();
+  return useQuery({
+    queryKey: ['service-providers', q ?? '', category ?? ''],
+    queryFn: () => servicesApi.providers(q, category, token),
+  });
+}
+
+export function useServiceCategories() {
+  const { token } = useApp();
+  return useQuery({
+    queryKey: ['service-categories'],
+    queryFn: () => servicesApi.categories(token),
+    // These change when ops onboards a provider, not while someone browses.
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
+export function useServiceProvider(slug: string | undefined) {
+  const { token } = useApp();
+  return useQuery({
+    queryKey: ['service-provider', slug],
+    queryFn: () => servicesApi.provider(slug!, token),
+    enabled: Boolean(slug),
+  });
+}
+
+export function useBookService() {
+  const { token } = useApp();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ServiceBooking) => servicesApi.book(body, token!),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['orders'] }),
+  });
+}
+
+/** The customer says they have paid the provider. */
+export function useAcceptServiceQuote(orderId: string) {
+  const { token } = useApp();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (proofUrl?: string) => servicesApi.accept(orderId, proofUrl, token!),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['order', orderId] });
+      qc.invalidateQueries({ queryKey: ['orders'] });
+    },
+  });
+}
+
+/** Not at that price. */
+export function useDeclineServiceQuote(orderId: string) {
+  const { token } = useApp();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (reason?: string) => servicesApi.decline(orderId, reason, token!),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['order', orderId] });
       qc.invalidateQueries({ queryKey: ['orders'] });

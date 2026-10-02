@@ -764,7 +764,15 @@ export const CATEGORIES: Category[] = [
   { slug: 'errands', label: 'Errands', icon: 'receipt-outline', href: '/errand' },
   { slug: 'marketplace', label: 'Marketplace', icon: 'storefront-outline', badge: 'NEW', href: '/marketplace' },
   { slug: 'shops', label: 'Shops', icon: 'bag-handle-outline' },
-  { slug: 'markets', label: 'Markets', icon: 'cart-outline' },
+  /**
+   * Services replaces Markets on the grid.
+   *
+   * Markets filtered the vendor list to one tag and showed a single foodstuff
+   * seller — a whole pillar carrying one shop, when the same vendors are
+   * already reachable through Shops and Marketplace. Services is the thing the
+   * app could not do at all: a person who comes to you and does a job.
+   */
+  { slug: 'services', label: 'Services', icon: 'construct-outline', href: '/services' },
   /**
    * Logistics is deliberately not a pillar here. Interstate is a different
    * enough product — different pricing, different timescale — that giving it

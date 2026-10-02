@@ -9,6 +9,7 @@ import { apiLimiter, errorHandler, notFoundHandler } from '@/middleware';
 import { adminRouter } from '@/routes/admin.routes';
 import { authRouter } from '@/routes/auth.routes';
 import { marketplaceRouter } from '@/routes/marketplace.routes';
+import { servicesRouter } from '@/routes/services.routes';
 import { meRouter } from '@/routes/me.routes';
 import { ordersRouter } from '@/routes/orders.routes';
 import { paymentsRouter, paystackWebhook } from '@/routes/payments.routes';
@@ -87,6 +88,7 @@ export function createApp() {
   // else under /orders requires a signed-in customer.
   v1.use('/web', webOrdersRouter);
   v1.use('/marketplace', marketplaceRouter);
+  v1.use('/services', servicesRouter);
   v1.use('/rider', riderRouter);
   v1.use('/vendor', vendorRouter);
   v1.use('/payments', paymentsRouter);

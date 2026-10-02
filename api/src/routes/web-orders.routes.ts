@@ -212,6 +212,40 @@ webOrdersRouter.post(
       .filter(Boolean)
       .join('\n\n');
 
+    /**
+     * Sendy's own fee, from the service catalogue, at booking time.
+     *
+     * A web booking used to be created with every money column at zero, so the
+     * dispatch fee had to be typed into the dashboard by hand on every single
+     * order before anything could be charged. The rider already reports the
+     * item price from the market; this is the other half, and unlike the item
+     * price it is knowable the moment a service is picked.
+     *
+     * Base fee only. The catalogue also carries PER_KM and an urgency
+     * multiplier, inherited from the contractors' data, and neither can ever be
+     * applied — nothing in this system measures distance or flags an order as
+     * urgent. Using them would be inventing a number.
+     *
+     * The website posts the service's display name; the slug is accepted too so
+     * a caller using either works. An unmatched service leaves the fee at zero
+     * and ops set it by hand, which is the old behaviour — a booking is never
+     * refused over a catalogue miss.
+     */
+    const service = await prisma.service.findFirst({
+      where: {
+        isActive: true,
+        OR: [
+          { name: { equals: body.service, mode: 'insensitive' } },
+          { slug: { equals: body.service, mode: 'insensitive' } },
+        ],
+      },
+      select: { slug: true, baseFeeKobo: true },
+    });
+    const serviceFeeKobo = service?.baseFeeKobo ?? 0;
+    if (!service) {
+      console.warn(`[web booking] no catalogue match for service "${body.service}" — fee left at 0`);
+    }
+
     try {
       const order = await prisma.order.create({
         data: {
@@ -225,6 +259,12 @@ webOrdersRouter.post(
            * which is exactly what QUOTE_REQUESTED already describes for errands.
            */
           status: 'QUOTE_REQUESTED',
+          /**
+           * What this customer owes Sendy. The item cost is NOT part of it —
+           * that goes to the seller directly and Sendy never touches it.
+           */
+          serviceFeeKobo,
+          totalKobo: serviceFeeKobo,
           /**
            * The 4-digit code the customer reads out at the door.
            *

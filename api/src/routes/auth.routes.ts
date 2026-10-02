@@ -38,7 +38,9 @@ const emailField = z
   .email('Enter a valid email address.')
   .transform((v) => v.trim().toLowerCase());
 
-const roleField = z.enum(['customer', 'rider', 'vendor']).default('customer');
+// 'provider' signs in here too — service providers claim an account ops made,
+// the same way vendors do.
+const roleField = z.enum(['customer', 'rider', 'vendor', 'provider']).default('customer');
 
 const registerSchema = z.object({
   email: emailField,
@@ -77,6 +79,9 @@ const RESET_PURPOSE = {
   customer: 'CUSTOMER_PASSWORD_RESET',
   rider: 'RIDER_PASSWORD_RESET',
   vendor: 'VENDOR_PASSWORD_RESET',
+  // Providers claim an account ops created, so reset is their way in — the
+  // same route vendors take.
+  provider: 'PROVIDER_PASSWORD_RESET',
 } as const;
 
 /**
@@ -211,6 +216,31 @@ authRouter.post(
     const { email, password, role } = req.body as z.infer<typeof loginSchema>;
     const wrong = () => unauthorized('That email or password is not correct.');
 
+    if (role === 'provider') {
+      const provider = await prisma.serviceProvider.findUnique({ where: { email } });
+      // Same bcrypt time whether or not they exist, so the response does not
+      // reveal which — identical to the vendor branch below.
+      if (!provider?.passwordHash) {
+        await burnTimingBudget(password);
+        throw wrong();
+      }
+      if (!(await verifyPassword(password, provider.passwordHash))) throw wrong();
+
+      return res.json({
+        data: {
+          token: signToken({ sub: provider.id, actor: 'provider' }),
+          provider: {
+            id: provider.id,
+            name: provider.name,
+            slug: provider.slug,
+            category: provider.category,
+            isVerified: provider.isVerified,
+            isAvailable: provider.isAvailable,
+          },
+        },
+      });
+    }
+
     if (role === 'vendor') {
       const vendor = await prisma.vendor.findUnique({ where: { email } });
       // Burn the same bcrypt time whether or not the vendor exists, so the
@@ -304,11 +334,13 @@ authRouter.post(
     const purpose = RESET_PURPOSE[role];
 
     const exists =
-      role === 'vendor'
-        ? await prisma.vendor.findUnique({ where: { email }, select: { id: true } })
-        : role === 'rider'
-          ? await prisma.rider.findUnique({ where: { email }, select: { id: true } })
-          : await prisma.user.findUnique({ where: { email }, select: { id: true } });
+      role === 'provider'
+        ? await prisma.serviceProvider.findUnique({ where: { email }, select: { id: true } })
+        : role === 'vendor'
+          ? await prisma.vendor.findUnique({ where: { email }, select: { id: true } })
+          : role === 'rider'
+            ? await prisma.rider.findUnique({ where: { email }, select: { id: true } })
+            : await prisma.user.findUnique({ where: { email }, select: { id: true } });
 
     const respond = (devCode?: string) =>
       res.json({
@@ -403,7 +435,9 @@ authRouter.post(
      * password and leave the code live for another attempt.
      */
     await prisma.$transaction(async (tx) => {
-      if (role === 'vendor') {
+      if (role === 'provider') {
+        await tx.serviceProvider.update({ where: { email }, data: { passwordHash } });
+      } else if (role === 'vendor') {
         await tx.vendor.update({ where: { email }, data: { passwordHash } });
       } else if (role === 'rider') {
         await tx.rider.update({ where: { email }, data: { passwordHash } });

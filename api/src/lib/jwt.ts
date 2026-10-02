@@ -3,7 +3,12 @@ import jwt, { type SignOptions } from 'jsonwebtoken';
 import { env } from '@/config/env';
 import { unauthorized } from './errors';
 
-export type Actor = 'customer' | 'rider' | 'vendor' | 'admin';
+/**
+ * 'provider' is a service provider — a barber, cleaner or plumber who comes to
+ * the customer. Its own actor rather than a flag on vendor: a vendor sells
+ * stock and a provider sells time, and they sign into different screens.
+ */
+export type Actor = 'customer' | 'rider' | 'vendor' | 'admin' | 'provider';
 
 export type TokenPayload = {
   sub: string;

@@ -6,6 +6,7 @@ import { Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import { DeliveryBidsPanel } from '@/components/DeliveryBidsPanel';
 import { RiderHoursNotice } from '@/components/RiderHoursNotice';
 import { ErrandQuotePanel } from '@/components/ErrandQuotePanel';
+import { ServiceQuotePanel } from '@/components/ServiceQuotePanel';
 import { Badge, Card, Divider, Skeleton } from '@/components/ui/atoms';
 import { Button, IconButton } from '@/components/ui/Button';
 import { Screen } from '@/components/ui/Screen';
@@ -59,6 +60,14 @@ export default function TrackOrder() {
    * person.
    */
   const errand = data?.raw.errandDetail ?? null;
+  /* Services run the same negotiation as errands, with the provider in the
+     rider's place and an arrival fee in place of a dispatch fee. */
+  const service = (data?.raw as { serviceDetail?: {
+    quotedKobo?: number | null;
+    arrivalFeeKobo?: number;
+    arrivalMode?: 'BIKE' | 'CAR';
+    provider?: { name?: string } | null;
+  } | null })?.serviceDetail ?? null;
   const awaitingQuote = status === 'QUOTE_REQUESTED';
   const quoted = status === 'PRICE_PROPOSED';
   const feePaid = (data?.raw.payments ?? []).some((p) => p.status === 'SUCCESS');
@@ -269,6 +278,17 @@ export default function TrackOrder() {
               ['QUOTE_REQUESTED', 'PLACED'].includes(status)
             }
           />
+
+          {quoted && service?.quotedKobo ? (
+            <ServiceQuotePanel
+              orderId={id}
+              providerName={service.provider?.name ?? 'Your provider'}
+              quotedKobo={service.quotedKobo}
+              arrivalKobo={service.arrivalFeeKobo ?? 0}
+              arrivalMode={service.arrivalMode ?? 'CAR'}
+              feePaid={feePaid}
+            />
+          ) : null}
 
           {quoted && errand?.actualItemKobo ? (
             <View className="mt-4">

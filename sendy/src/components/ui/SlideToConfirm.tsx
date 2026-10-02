@@ -79,6 +79,42 @@ export function SlideToConfirm({
       speed: 18,
     }).start(then);
 
+  /**
+   * Confirm exactly once, however it gets triggered.
+   *
+   * The knob has to finish travelling before the action fires, or the handler
+   * navigates away and unmounts the screen mid-spring — which is what turned
+   * the ball's run to the end into a jump. But the action cannot be left
+   * depending on an animation callback either: an interrupted spring, or a view
+   * that detaches first, drops it and the confirmation is lost silently.
+   *
+   * So both fire it, and this gate makes the second one a no-op. The animation
+   * gets to be decoration again without being load-bearing.
+   */
+  const firedRef = useRef(false);
+  const fallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const fireOnce = () => {
+    if (firedRef.current) return;
+    firedRef.current = true;
+    if (fallbackRef.current) {
+      clearTimeout(fallbackRef.current);
+      fallbackRef.current = null;
+    }
+    confirmRef.current();
+  };
+
+  // The spring at speed 18 lands in roughly a quarter second; this is the
+  // backstop for when its callback never arrives, not the normal path.
+  const FIRE_FALLBACK_MS = 450;
+
+  useEffect(
+    () => () => {
+      if (fallbackRef.current) clearTimeout(fallbackRef.current);
+    },
+    []
+  );
+
   const responder = useRef(
     PanResponder.create({
       /**
@@ -112,21 +148,12 @@ export function SlideToConfirm({
          */
         if (max > 0 && travelled >= max * 0.7) {
           lockedRef.current = true;
-          /**
-           * Animate, then act — as two separate things.
-           *
-           * This used to pass the handler as the spring's completion callback,
-           * which made confirming conditional on an animation finishing. A
-           * spring that is interrupted, or whose callback is dropped because
-           * the view detached, then loses the action entirely: the knob slides,
-           * the gesture looks accepted, and nothing is ever sent. The rider has
-           * no way to tell that from a slow network.
-           *
-           * The movement is decoration. The action is the point, so it does not
-           * wait on the decoration.
-           */
-          settle(max);
-          confirmRef.current();
+          firedRef.current = false;
+          // The knob runs to the end and fires on arrival; the timer covers the
+          // case where that arrival is never reported. fireOnce makes whichever
+          // lands second a no-op.
+          settle(max, fireOnce);
+          fallbackRef.current = setTimeout(fireOnce, FIRE_FALLBACK_MS);
         } else {
           settle(0);
         }
@@ -146,6 +173,13 @@ export function SlideToConfirm({
   useEffect(() => {
     if (!pending && lockedRef.current) {
       lockedRef.current = false;
+      // Re-arm, or a retry after a failed confirm would be swallowed by the
+      // once-gate from the previous attempt.
+      firedRef.current = false;
+      if (fallbackRef.current) {
+        clearTimeout(fallbackRef.current);
+        fallbackRef.current = null;
+      }
       settle(0);
     }
     // settle is stable enough for this: it only closes over `x`, a ref value.

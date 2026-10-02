@@ -98,6 +98,40 @@ export const MarketsIcon = ({ size, main, soft, ...rest }: IconProps) => (
 );
 
 /**
+ * Services — an open-jaw spanner.
+ *
+ * A single tool rather than a toolbox: a toolbox at 30px is a rectangle with a
+ * handle, which is the Packages box again. The open jaw and the diagonal shaft
+ * give it a silhouette nothing else in the set has.
+ *
+ * The coordinates are offset so the drawn ink is centred on the 24x24 viewBox —
+ * measured, not eyeballed. The first version was built around the geometry of
+ * the jaw and sat 1.05 units up and to the right, which on a 56px tile reads as
+ * the icon sliding out of its corner. Ink box is 15.7 square, centred on
+ * (12, 12); re-measure if these paths are ever edited.
+ */
+export const ServicesIcon = ({ size, main, soft, ...rest }: IconProps) => (
+  <Frame size={size} {...rest}>
+    {/* Shaft. A round-capped stroke rather than a filled polygon — the cap is
+        the handle end, and it stays smooth at any size. */}
+    <Path
+      d="M12.35 11.65 6.25 17.75"
+      stroke={soft}
+      strokeWidth="4.2"
+      strokeLinecap="round"
+    />
+    {/* Head: a C-ring with the bore punched out by the even-odd rule, so the
+        hole shows the tile behind rather than being painted over. */}
+    <Path
+      fillRule="evenodd"
+      clipRule="evenodd"
+      fill={main}
+      d="M16.82 4.43 A4.6 4.6 0 1 0 19.85 8.75 L17.45 8.75 A2.2 2.2 0 1 1 16.00 6.68 Z"
+    />
+  </Frame>
+);
+
+/**
  * Food — a covered dish on a plate.
  *
  * A cloche rather than cutlery: a knife and fork at 30px is two thin strokes
@@ -155,6 +189,10 @@ export const CATEGORY_PALETTE: Record<string, { tint: string; main: string; soft
   shops: { tint: '#FFEAD6', main: '#C2530A', soft: '#FB9A47' },
   pharmacy: { tint: '#DFEBFF', main: '#1B4FA8', soft: '#5D9BEE' },
   markets: { tint: '#DDF2E6', main: '#12703F', soft: '#4FBE84' },
+  // Steel blue — a working colour, and the only cool tone on a grid that is
+  // otherwise warm, so the new pillar reads as different rather than as
+  // another shop.
+  services: { tint: '#DCE8F2', main: '#1F4E79', soft: '#6191BF' },
   bills: { tint: '#D8F0E9', main: '#0A6E5C', soft: '#3FB39B' },
   // Warm red-orange: the appetite colour, and distinct from Shops' orange and
   // Marketplace's red at tile size.
@@ -169,6 +207,7 @@ const ICONS: Record<string, (p: IconProps) => React.ReactElement> = {
   shops: ShopsIcon,
   pharmacy: PharmacyIcon,
   markets: MarketsIcon,
+  services: ServicesIcon,
   bills: BillsIcon,
   food: FoodIcon,
   packages: PackagesIcon,

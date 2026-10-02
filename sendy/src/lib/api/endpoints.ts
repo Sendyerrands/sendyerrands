@@ -289,6 +289,62 @@ export type TopupResult = {
   balanceKobo: number;
 };
 
+/** A person who comes to you and does a job. */
+export type ApiServiceProvider = {
+  id: string;
+  name: string;
+  slug: string;
+  category: string;
+  bio: string | null;
+  tags: string[];
+  area: string | null;
+  state: string;
+  rating: number;
+  ratingCount: number;
+  avatarUrl: string | null;
+  bikeFeeKobo: number;
+  carFeeKobo: number;
+  canTravelByBike: boolean;
+  typicalMinMinutes: number;
+  typicalMaxMinutes: number;
+  isVerified: boolean;
+  isAvailable: boolean;
+};
+
+export type ServiceBooking = {
+  providerSlug: string;
+  task: string;
+  details?: string;
+  address: string;
+  landmark?: string;
+  arrivalMode: 'BIKE' | 'CAR';
+  scheduledFor?: string;
+  budgetKobo?: number;
+};
+
+export const servicesApi = {
+  /** Browsing needs no account, same as the marketplace. */
+  providers: (q?: string, category?: string, token?: string | null) => {
+    const qs = new URLSearchParams();
+    if (q) qs.set('q', q);
+    if (category && category !== 'All') qs.set('category', category);
+    return api.get<ApiServiceProvider[]>(`/services/providers${qs.toString() ? `?${qs}` : ''}`, token);
+  },
+  categories: (token?: string | null) => api.get<string[]>('/services/categories', token),
+  provider: (slug: string, token?: string | null) =>
+    api.get<ApiServiceProvider>(`/services/providers/${slug}`, token),
+
+  book: (body: ServiceBooking, token: string) =>
+    api.post<ApiOrder>('/services/bookings', body, token),
+
+  /** "I have paid the provider" — a claim, with an optional receipt. */
+  accept: (orderId: string, proofUrl: string | undefined, token: string) =>
+    api.post<ApiOrder>(`/services/bookings/${orderId}/accept`, { proofUrl }, token),
+
+  decline: (orderId: string, reason: string | undefined, token: string) =>
+    api.post<ApiOrder>(`/services/bookings/${orderId}/decline`, { reason }, token),
+};
+
 export const marketplaceApi = {
   products: (q: string | undefined, state: string | undefined, token?: string | null) => {
     const qs = new URLSearchParams();

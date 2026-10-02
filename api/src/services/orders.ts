@@ -55,8 +55,35 @@ const LABELS: Record<OrderStatus, string> = {
   REFUNDED: 'Refunded',
 };
 
-export function canTransition(from: OrderStatus, to: OrderStatus): boolean {
-  return TRANSITIONS[from]?.includes(to) ?? false;
+/**
+ * Where one order type's lane differs from the shared map.
+ *
+ * A service booking has no rider: the provider IS the person travelling, so it
+ * goes QUOTE_REQUESTED straight to PRICE_PROPOSED, and once the customer has
+ * paid, the provider sets off rather than collecting goods from a stall.
+ *
+ * Expressed as a per-type override rather than by widening TRANSITIONS,
+ * because widening it would also let an errand jump from QUOTE_REQUESTED to
+ * PRICE_PROPOSED with no rider assigned — pricing a job nobody has taken — and
+ * let a rider skip PICKED_UP entirely. The whole value of this table is the
+ * transitions it refuses.
+ */
+const TRANSITIONS_BY_TYPE: Partial<Record<OrderType, Partial<Record<OrderStatus, OrderStatus[]>>>> = {
+  SERVICE: {
+    QUOTE_REQUESTED: ['PRICE_PROPOSED', 'CANCELLED'],
+    // Re-quoting stays available while the customer has not paid: the job is
+    // often not what the booking described.
+    PRICE_PROPOSED: ['MERCHANT_PAID', 'PRICE_PROPOSED', 'CANCELLED'],
+    // The provider travels, then finishes. DELIVERED direct covers the
+    // provider who is already on site when the customer confirms.
+    MERCHANT_PAID: ['IN_TRANSIT', 'DELIVERED', 'CANCELLED'],
+    IN_TRANSIT: ['DELIVERED', 'CANCELLED'],
+  },
+};
+
+export function canTransition(from: OrderStatus, to: OrderStatus, type?: OrderType): boolean {
+  const override = type ? TRANSITIONS_BY_TYPE[type]?.[from] : undefined;
+  return (override ?? TRANSITIONS[from])?.includes(to) ?? false;
 }
 
 export function statusLabel(status: OrderStatus): string {
@@ -98,7 +125,7 @@ export async function transitionOrder(
 
     if (order.status === to) return order; // idempotent — safe to retry
 
-    if (!canTransition(order.status, to)) {
+    if (!canTransition(order.status, to, order.type)) {
       throw conflict(`An order that is "${LABELS[order.status]}" cannot become "${LABELS[to]}".`);
     }
 
