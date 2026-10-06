@@ -15,7 +15,16 @@ export const uploadsRouter = Router();
  */
 uploadsRouter.post(
   '/signature',
-  requireAuth('customer', 'rider', 'admin'),
+  /**
+   * Vendors and providers belong here too.
+   *
+   * `product-images` and `vendor-covers` are folders only a vendor ever writes
+   * to, and `avatars` is how a service provider gets a face on their listing —
+   * but neither actor was allowed to ask for a signature, so the website's
+   * vendor dashboard got a 403 and fell back to "photo upload is unavailable
+   * right now". Nothing was wrong with Cloudinary; the door was just shut.
+   */
+  requireAuth('customer', 'rider', 'admin', 'vendor', 'provider'),
   validate(
     z.object({
       folder: z.enum(UPLOAD_FOLDERS),
