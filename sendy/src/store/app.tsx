@@ -38,8 +38,8 @@ type AppState = {
   token: string | null;
   signedIn: boolean;
   user: ApiUser | null;
-  actor: 'customer' | 'rider' | 'vendor';
-  signIn: (token: string, actor?: 'customer' | 'rider' | 'vendor') => Promise<void>;
+  actor: 'customer' | 'rider' | 'vendor' | 'provider';
+  signIn: (token: string, actor?: 'customer' | 'rider' | 'vendor' | 'provider') => Promise<void>;
   signOut: () => Promise<void>;
   email: string;
   setEmail: (v: string) => void;
@@ -72,7 +72,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const [ready, setReady] = useState(false);
   const [token, setToken] = useState<string | null>(null);
-  const [actor, setActor] = useState<'customer' | 'rider' | 'vendor'>('customer');
+  const [actor, setActor] = useState<'customer' | 'rider' | 'vendor' | 'provider'>('customer');
   const [email, setEmail] = useState('');
 
   /**
@@ -175,7 +175,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   });
 
   const signIn = useCallback(
-    async (newToken: string, newActor: 'customer' | 'rider' | 'vendor' = 'customer') => {
+    async (newToken: string, newActor: 'customer' | 'rider' | 'vendor' | 'provider' = 'customer') => {
       /**
        * State first, storage second.
        *

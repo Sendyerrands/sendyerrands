@@ -7,7 +7,12 @@ import type { ApiBid, ApiOrder, ApiProduct, ApiRiderJob, ApiVendor } from './map
  */
 
 // ── auth ────────────────────────────────────────────────────
-export type Actor = 'customer' | 'rider' | 'vendor';
+/**
+ * 'provider' is a service provider — a barber, cleaner or plumber who travels
+ * to the customer. A separate door from 'vendor': a vendor sells stock from a
+ * shopfront, a provider sells an hour of their time.
+ */
+export type Actor = 'customer' | 'rider' | 'vendor' | 'provider';
 
 /** The code is emailed. `devCode` comes back only when OTP_DEV_MODE is on. */
 export type ForgotPasswordResult = {
@@ -343,6 +348,51 @@ export const servicesApi = {
 
   decline: (orderId: string, reason: string | undefined, token: string) =>
     api.post<ApiOrder>(`/services/bookings/${orderId}/decline`, { reason }, token),
+};
+
+/** A job as the provider sees it: the service detail plus its order. */
+export type ApiProviderJob = {
+  id: string;
+  orderId: string;
+  task: string;
+  details: string | null;
+  address: string;
+  landmark: string | null;
+  arrivalMode: 'BIKE' | 'CAR';
+  arrivalFeeKobo: number;
+  scheduledFor: string | null;
+  budgetKobo: number | null;
+  quotedKobo: number | null;
+  paidProviderAt: string | null;
+  enRouteAt: string | null;
+  completedAt: string | null;
+  order: {
+    id: string;
+    reference: string;
+    status: string;
+    totalKobo: number;
+    createdAt: string;
+    deliveryCode: string | null;
+    customer: { firstName: string | null; phone: string | null } | null;
+  };
+};
+
+export const providerApi = {
+  jobs: (token: string) => api.get<ApiProviderJob[]>('/services/jobs', token),
+
+  /** The price for the work. Paid to the provider directly. */
+  quote: (orderId: string, quotedKobo: number, token: string) =>
+    api.post<{ order: ApiOrder; quotedKobo: number }>(
+      `/services/jobs/${orderId}/quote`, { quotedKobo }, token
+    ),
+
+  enRoute: (orderId: string, token: string) =>
+    api.post<ApiOrder>(`/services/jobs/${orderId}/en-route`, {}, token),
+
+  /** Needs the customer's code — the only thing separating turning up from
+      having done the work. */
+  complete: (orderId: string, deliveryCode: string, token: string) =>
+    api.post<ApiOrder>(`/services/jobs/${orderId}/complete`, { deliveryCode }, token),
 };
 
 export const marketplaceApi = {

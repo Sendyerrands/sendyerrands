@@ -52,10 +52,18 @@ async function deleteItem(key: string) {
   await SecureStore.deleteItemAsync(key);
 }
 
-export type Actor = 'customer' | 'rider' | 'vendor';
+/**
+ * 'provider' is a service provider — a barber, cleaner or plumber who travels
+ * to the customer. A separate door from 'vendor': a vendor sells stock from a
+ * shopfront, a provider sells an hour of their time.
+ */
+export type Actor = 'customer' | 'rider' | 'vendor' | 'provider';
 export type StoredSession = { token: string; actor: Actor };
 
-const ACTORS: Actor[] = ['customer', 'rider', 'vendor'];
+// The whitelist a restored session is validated against. Anything missing
+// here falls back to 'customer', which would silently sign a provider in
+// through the wrong door rather than failing.
+const ACTORS: Actor[] = ['customer', 'rider', 'vendor', 'provider'];
 
 export async function saveSession(session: StoredSession) {
   await setItem(SESSION_KEY, JSON.stringify(session));

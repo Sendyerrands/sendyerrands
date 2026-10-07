@@ -41,6 +41,12 @@ const PORTALS = [
     hint: 'Manage your store and orders',
     icon: 'business-outline' as const,
   },
+  {
+    role: 'provider' as const,
+    label: 'Service provider',
+    hint: 'Price jobs and get booked',
+    icon: 'construct-outline' as const,
+  },
 ];
 
 /**
@@ -55,7 +61,11 @@ const PORTALS = [
 export default function SignIn() {
   const router = useRouter();
   const { role } = useLocalSearchParams<{ role?: string }>();
-  const actor: Actor = role === 'rider' ? 'rider' : role === 'vendor' ? 'vendor' : 'customer';
+  const actor: Actor =
+    role === 'rider' ? 'rider'
+    : role === 'vendor' ? 'vendor'
+    : role === 'provider' ? 'provider'
+    : 'customer';
 
   const { signIn, email, setEmail } = useApp();
   const [password, setPassword] = useState('');
@@ -85,6 +95,7 @@ export default function SignIn() {
       await rememberLogin(email.trim(), password, actor);
       await signIn(session.token, actor);
       if (actor === 'vendor') return router.replace('/vendor-app');
+      if (actor === 'provider') return router.replace('/provider');
       if (actor === 'rider') return router.replace('/rider');
       router.replace('/(tabs)/home');
     },
@@ -93,7 +104,10 @@ export default function SignIn() {
   });
 
   const label =
-    actor === 'rider' ? 'rider account' : actor === 'vendor' ? 'vendor account' : 'account';
+    actor === 'rider' ? 'rider account'
+    : actor === 'vendor' ? 'vendor account'
+    : actor === 'provider' ? 'service provider account'
+    : 'account';
 
   return (
     <Screen>
@@ -220,10 +234,14 @@ export default function SignIn() {
         {/* Vendors cannot self-register — the account exists because ops
             approved an application, so offering "Create one" would lead to a
             form that always refuses them. */}
-        {actor === 'vendor' ? (
+        {actor === 'vendor' || actor === 'provider' ? (
+          /* Neither self-registers: the account exists because ops approved an
+             application, so "Create one" would lead to a form that always
+             refuses — /auth/register accepts customer and rider only. */
           <Text className="text-muted text-[13px] mt-4 leading-[20px]">
-            Vendor accounts are created when an application is approved. If you have applied and
-            not set a password yet, contact support and we will set one up with you.
+            {actor === 'vendor' ? 'Vendor' : 'Service provider'} accounts are created when an
+            application is approved. If you have applied and not set a password yet, contact
+            support and we will set one up with you.
           </Text>
         ) : (
           <View className="flex-row items-center mt-4">

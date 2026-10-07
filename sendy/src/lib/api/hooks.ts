@@ -22,7 +22,7 @@ import {
 } from './storage';
 
 import {
-  marketplaceApi, meApi, ordersApi, paymentsApi, riderApi, servicesApi, vendorApi, vendorApplicationsApi, vendorsApi,
+  marketplaceApi, meApi, ordersApi, paymentsApi, providerApi, riderApi, servicesApi, vendorApi, vendorApplicationsApi, vendorsApi,
 } from './endpoints';
 import type { ServiceBooking } from './endpoints';
 import type { VendorProductBody } from './endpoints';
@@ -1129,5 +1129,52 @@ export function useDeclineServiceQuote(orderId: string) {
       qc.invalidateQueries({ queryKey: ['order', orderId] });
       qc.invalidateQueries({ queryKey: ['orders'] });
     },
+  });
+}
+
+
+/* ── Service provider: the other side of a booking ────────────────────── */
+
+export function useProviderJobs() {
+  const { token, actor } = useApp();
+  return useQuery({
+    queryKey: ['provider-jobs'],
+    queryFn: () => providerApi.jobs(token!),
+    enabled: Boolean(token) && actor === 'provider',
+    /**
+     * A provider waits on two things they cannot see happen: the customer
+     * approving a price, and the customer confirming they have paid. Without a
+     * poll they sit on a screen that will never change and have no reason to
+     * think refreshing would help.
+     */
+    refetchInterval: 20_000,
+  });
+}
+
+/** The provider names the price, once they can see the job. */
+export function useQuoteServiceJob(orderId: string) {
+  const { token } = useApp();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (quotedKobo: number) => providerApi.quote(orderId, quotedKobo, token!),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['provider-jobs'] }),
+  });
+}
+
+export function useProviderEnRoute(orderId: string) {
+  const { token } = useApp();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => providerApi.enRoute(orderId, token!),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['provider-jobs'] }),
+  });
+}
+
+export function useProviderComplete(orderId: string) {
+  const { token } = useApp();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (deliveryCode: string) => providerApi.complete(orderId, deliveryCode, token!),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['provider-jobs'] }),
   });
 }
