@@ -207,6 +207,7 @@ model User {
   supportRequests    SupportRequest[]
   walletTxns         WalletTransaction[]
   vendorApplications VendorApplication[]
+  providerApplications ProviderApplication[]
 
   @@map("users")
 }
@@ -674,7 +675,8 @@ model ServiceProvider {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  orders ServiceDetail[]
+  orders      ServiceDetail[]
+  application ProviderApplication?
 
   @@index([category])
   @@index([state, category])
@@ -948,6 +950,55 @@ enum VendorApplicationStatus {
  * separate, approval is the moment a Vendor is created, and the queries that
  * serve customers cannot accidentally surface an application.
  */
+/**
+ * Someone asking to become a service provider.
+ *
+ * Mirrors VendorApplication deliberately: a provider is onboarded the same way
+ * a vendor is — they apply, ops reviews, and approval is what creates the
+ * ServiceProvider row. Nobody self-registers into either.
+ *
+ * It reuses VendorApplicationStatus rather than declaring a second identical
+ * enum. The three states are the same three states; renaming that type to
+ * something neutral would be a migration touching live columns for a naming
+ * improvement, which is not a trade worth making.
+ */
+model ProviderApplication {
+  id       String @id @default(cuid())
+  /// The name they trade under — "Kay Cuts", not necessarily a person's name.
+  name     String
+  /// Barber, Cleaning, Plumbing. Free text, like ServiceProvider.category.
+  category String
+  area     String
+  state    String @default("Lagos")
+  phone    String
+  email    String?
+  /// What they do, in their own words — becomes the listing bio on approval.
+  bio      String?
+  /// Skills, shown as chips on the listing.
+  tags     String[]
+  /// False where the kit will not fit on a bike. Asked at application time
+  /// because it decides which arrival options a customer is ever offered.
+  canTravelByBike Boolean @default(true)
+  /// Why it was rejected, or an internal remark.
+  note     String?
+  status   VendorApplicationStatus @default(PENDING)
+
+  /// The signed-in customer who applied, so they can be told the outcome.
+  applicantId String?
+  applicant   User?   @relation(fields: [applicantId], references: [id], onDelete: SetNull)
+
+  /// Set once approved — the ServiceProvider this application became.
+  providerId String?          @unique
+  provider   ServiceProvider? @relation(fields: [providerId], references: [id], onDelete: SetNull)
+
+  reviewedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([status, createdAt])
+  @@map("provider_applications")
+}
+
 model VendorApplication {
   id           String                  @id @default(cuid())
   businessName String

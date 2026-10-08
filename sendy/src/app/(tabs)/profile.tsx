@@ -250,6 +250,19 @@ export default function Profile() {
             label="Vendor dashboard"
             onPress={() => router.push('/vendor-app')}
           />
+          {/* Services onboards the same way vendors do — apply, ops reviews,
+              approval creates the listing. Both doors sit together so the
+              choice reads as one decision. */}
+          <ListRow
+            icon="construct-outline"
+            label="Offer a service"
+            onPress={() => router.push('/become-provider')}
+          />
+          <ListRow
+            icon="hammer-outline"
+            label="Provider dashboard"
+            onPress={() => router.push('/provider')}
+          />
           <ListRow
             icon="lock-closed-outline"
             label="Change password"

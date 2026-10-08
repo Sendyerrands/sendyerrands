@@ -377,6 +377,36 @@ export type ApiProviderJob = {
   };
 };
 
+export type ProviderApplicationBody = {
+  name: string;
+  category: string;
+  area: string;
+  state?: string;
+  phone: string;
+  email?: string;
+  bio?: string;
+  tags?: string[];
+  canTravelByBike?: boolean;
+};
+
+export type ApiProviderApplication = {
+  id: string;
+  name: string;
+  category: string;
+  area: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  note: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
+};
+
+export const providerApplicationsApi = {
+  create: (body: ProviderApplicationBody, token: string) =>
+    api.post<ApiProviderApplication>('/provider-applications', body, token),
+  mine: (token: string) =>
+    api.get<ApiProviderApplication[]>('/provider-applications/mine', token),
+};
+
 export const providerApi = {
   jobs: (token: string) => api.get<ApiProviderJob[]>('/services/jobs', token),
 

@@ -5,6 +5,7 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 
 import { CategoryGrid } from '@/components/CategoryGrid';
 import { PromoCarousel } from '@/components/PromoCarousel';
+import { RidesBanner } from '@/components/RidesBanner';
 import { EmptyState, SectionGap, SectionHeader, Skeleton } from '@/components/ui/atoms';
 import { Button, IconButton } from '@/components/ui/Button';
 import { LocationSelector, Screen } from '@/components/ui/Screen';
@@ -84,6 +85,12 @@ export default function Home() {
 
         <View className="mt-6">
           <CategoryGrid />
+        </View>
+
+        {/* Under the pillars, not in the carousel: this is an announcement, so
+            it holds still rather than rotating away. */}
+        <View className="mt-5">
+          <RidesBanner />
         </View>
 
         <SectionGap />

@@ -16,6 +16,7 @@ import { paymentsRouter, paystackWebhook } from '@/routes/payments.routes';
 import { riderRouter } from '@/routes/rider.routes';
 import { uploadsRouter } from '@/routes/uploads.routes';
 import { vendorApplicationsRouter } from '@/routes/vendor-applications.routes';
+import { providerApplicationsRouter } from '@/routes/provider-applications.routes';
 import { vendorRouter } from '@/routes/vendor.routes';
 import { vendorsRouter } from '@/routes/vendors.routes';
 import { webOrdersRouter } from '@/routes/web-orders.routes';
@@ -83,6 +84,7 @@ export function createApp() {
   v1.use('/me', meRouter);
   v1.use('/vendors', vendorsRouter);
   v1.use('/vendor-applications', vendorApplicationsRouter);
+  v1.use('/provider-applications', providerApplicationsRouter);
   v1.use('/orders', ordersRouter);
   // Public: the website's booking form and its tracking lookup. Everything
   // else under /orders requires a signed-in customer.

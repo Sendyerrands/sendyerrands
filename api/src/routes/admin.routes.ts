@@ -665,6 +665,143 @@ adminRouter.post(
   })
 );
 
+/** Same shape as uniqueVendorSlug, against the provider table. */
+async function uniqueProviderSlug(name: string): Promise<string> {
+  const base =
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-|-$/g, '')
+      .slice(0, 40) || 'provider';
+
+  for (let n = 0; ; n++) {
+    const slug = n === 0 ? base : `${base}-${n}`;
+    const taken = await prisma.serviceProvider.findUnique({ where: { slug }, select: { id: true } });
+    if (!taken) return slug;
+  }
+}
+
+/** GET /admin/provider-applications?status=PENDING — the onboarding queue. */
+adminRouter.get(
+  '/provider-applications',
+  asyncHandler(async (req, res) => {
+    const status = typeof req.query.status === 'string' ? req.query.status.toUpperCase() : undefined;
+    const valid = ['PENDING', 'APPROVED', 'REJECTED'];
+
+    const applications = await prisma.providerApplication.findMany({
+      where: status && valid.includes(status) ? { status: status as never } : {},
+      orderBy: [{ status: 'asc' }, { createdAt: 'asc' }],
+      include: {
+        applicant: { select: { id: true, firstName: true, lastName: true, phone: true, email: true } },
+        provider: { select: { id: true, name: true, slug: true } },
+      },
+      take: 100,
+    });
+
+    res.json({ data: applications });
+  })
+);
+
+/**
+ * POST /admin/provider-applications/:id/decide — approve or reject.
+ *
+ * Approving creates the ServiceProvider unverified and unavailable. The
+ * application carries no arrival fees, and a provider that went live on
+ * approval would be bookable at the schema defaults rather than at a price
+ * anyone agreed. Ops sets the fees, then flips verified and available.
+ */
+adminRouter.post(
+  '/provider-applications/:id/decide',
+  validate(
+    z.object({
+      decision: z.enum(['APPROVE', 'REJECT']),
+      note: z.string().max(500).optional(),
+    })
+  ),
+  asyncHandler(async (req, res) => {
+    const { decision, note } = req.body as { decision: 'APPROVE' | 'REJECT'; note?: string };
+
+    const application = await prisma.providerApplication.findUnique({
+      where: { id: req.params.id! },
+    });
+    if (!application) throw notFound('Application');
+    if (application.status !== 'PENDING') {
+      throw conflict(`This application was already ${application.status.toLowerCase()}.`);
+    }
+
+    if (decision === 'REJECT') {
+      const updated = await prisma.providerApplication.update({
+        where: { id: application.id },
+        data: { status: 'REJECTED', note, reviewedAt: new Date() },
+      });
+      res.json({ data: updated });
+      return;
+    }
+
+    const slug = await uniqueProviderSlug(application.name);
+
+    /**
+     * The application's phone becomes the provider's login handle, and it is
+     * unique across providers. If that number already runs one, ops has to
+     * resolve which it belongs to rather than have the approval fail on a
+     * constraint violation.
+     */
+    const phoneTaken = await prisma.serviceProvider.findUnique({
+      where: { phone: application.phone },
+      select: { id: true, name: true },
+    });
+    if (phoneTaken) {
+      throw conflict(
+        `${application.phone} already signs in for ${phoneTaken.name}. Ask the applicant for a different number before approving.`
+      );
+    }
+
+    if (application.email) {
+      const emailTaken = await prisma.serviceProvider.findUnique({
+        where: { email: application.email },
+        select: { id: true, name: true },
+      });
+      if (emailTaken) {
+        throw conflict(
+          `${application.email} already signs in for ${emailTaken.name}. Ask the applicant for a different address before approving.`
+        );
+      }
+    }
+
+    // One transaction: a ServiceProvider with no application pointing at it
+    // would be an orphan ops could not trace back to who asked for it.
+    const [, updated] = await prisma.$transaction(async (tx) => {
+      const provider = await tx.serviceProvider.create({
+        data: {
+          name: application.name,
+          slug,
+          category: application.category,
+          bio: application.bio,
+          tags: application.tags,
+          area: application.area,
+          state: application.state,
+          phone: application.phone,
+          email: application.email,
+          canTravelByBike: application.canTravelByBike,
+          // Not bookable until ops has set the arrival fees and checked them.
+          isVerified: false,
+          isAvailable: false,
+        },
+      });
+
+      const app = await tx.providerApplication.update({
+        where: { id: application.id },
+        data: { status: 'APPROVED', note, reviewedAt: new Date(), providerId: provider.id },
+        include: { provider: { select: { id: true, name: true, slug: true } } },
+      });
+
+      return [provider, app] as const;
+    });
+
+    res.json({ data: updated });
+  })
+);
+
 /** GET /admin/vendors/:id/products — the vendor's catalogue, for managing listings. */
 adminRouter.get(
   '/vendors/:id/products',

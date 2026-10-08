@@ -22,9 +22,10 @@ import {
 } from './storage';
 
 import {
-  marketplaceApi, meApi, ordersApi, paymentsApi, providerApi, riderApi, servicesApi, vendorApi, vendorApplicationsApi, vendorsApi,
+  marketplaceApi, meApi, ordersApi, paymentsApi, providerApi, providerApplicationsApi, riderApi, servicesApi, vendorApi, vendorApplicationsApi, vendorsApi,
 } from './endpoints';
 import type { ServiceBooking } from './endpoints';
+import type { ProviderApplicationBody } from './endpoints';
 import type { VendorProductBody } from './endpoints';
 import type { VendorApplicationBody } from './endpoints';
 import type { TopupResult } from './endpoints';
@@ -1176,5 +1177,25 @@ export function useProviderComplete(orderId: string) {
   return useMutation({
     mutationFn: (deliveryCode: string) => providerApi.complete(orderId, deliveryCode, token!),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['provider-jobs'] }),
+  });
+}
+
+
+/** Applying to offer a service — the same shape as the vendor application. */
+export function useProviderApplications() {
+  const { token } = useApp();
+  return useQuery({
+    queryKey: ['provider-applications'],
+    queryFn: () => providerApplicationsApi.mine(token!),
+    enabled: Boolean(token),
+  });
+}
+
+export function useApplyAsProvider() {
+  const { token } = useApp();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ProviderApplicationBody) => providerApplicationsApi.create(body, token!),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['provider-applications'] }),
   });
 }
