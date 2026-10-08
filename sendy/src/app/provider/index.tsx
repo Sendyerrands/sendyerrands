@@ -66,7 +66,21 @@ export default function ProviderHome() {
       <ScreenHeader
         title="Your jobs"
         right={
-          <Button title="Sign out" variant="text" fullWidth={false} onPress={() => void signOut()} />
+          <Button
+            title="Sign out"
+            variant="text"
+            fullWidth={false}
+            /*
+              Navigate, like the rider and vendor apps do. Signing out without
+              it left you on /provider, where the gate above swaps in a "sign
+              in as a provider" panel — the session really was gone, but it
+              looked like the button had only redecorated the page.
+            */
+            onPress={async () => {
+              await signOut();
+              router.replace('/signin');
+            }}
+          />
         }
       />
 

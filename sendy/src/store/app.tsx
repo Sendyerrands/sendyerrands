@@ -53,6 +53,15 @@ type AppState = {
   cart: CartLine[];
   vendorId: string | null;
   addToCart: (line: Omit<CartLine, 'qty'>, vendorId: string) => void;
+  /**
+   * True when adding from this vendor would empty the cart first.
+   *
+   * Exposed so a caller can ASK before it happens. The replacement itself is
+   * deliberate — one rider goes to one pickup — but doing it silently is what
+   * made the cart look broken: an item would go in and the previous one would
+   * vanish with no explanation.
+   */
+  wouldReplaceCart: (vendorId: string) => boolean;
   setQty: (id: string, qty: number) => void;
   clearCart: () => void;
   cartCount: number;
@@ -207,7 +216,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     recordAuth('signout.manual');
     await clearSession();
     setToken(null);
+    /*
+      Reset the actor too. Without this it kept whatever it was — sign out of
+      the rider app and `actor` stayed 'rider', which the splash reads to pick
+      where to send a returning user. The 401 path below has always done this;
+      a manual sign-out left more behind than an expired token did.
+    */
+    setActor('customer');
     setCart([]);
+    /*
+      And the cart's vendor. `setCart([])` alone left it set, so the mirror
+      effect wrote `{lines: [], vendorId: 'someone'}` to web storage instead of
+      clearing it — the next person to use that browser restored a stale
+      vendor with an empty cart.
+    */
+    setVendorId(null);
     setActiveAddressId(null);
     queryClient.clear();
   }, [queryClient]);
@@ -227,6 +250,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Kept in a ref so addToCart doesn't need vendorId in its dependency list.
   const vendorIdRef = useMemoRef(vendorId);
+
+  const wouldReplaceCart = useCallback(
+    (vendor: string) => cart.length > 0 && vendorId !== null && vendorId !== vendor,
+    [cart.length, vendorId]
+  );
 
   const setQty = useCallback((id: string, qty: number) => {
     setCart((prev) =>
@@ -269,6 +297,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       cart,
       vendorId,
       addToCart,
+      wouldReplaceCart,
       setQty,
       clearCart,
       cartCount: cart.reduce((n, l) => n + l.qty, 0),
@@ -281,7 +310,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, [
     ready, token, user, actor, signIn, signOut, email,
-    addresses, activeAddressId, cart, vendorId, addToCart, setQty, clearCart, vendorFees,
+    addresses, activeAddressId, cart, vendorId, addToCart, wouldReplaceCart, setQty, clearCart,
+    vendorFees,
   ]);
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

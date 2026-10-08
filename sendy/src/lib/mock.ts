@@ -41,6 +41,13 @@ export type MenuItem = {
 
 export type Product = {
   id: string;
+  /**
+   * Which vendor sells it. Required, not optional: the cart is keyed per
+   * vendor, so a Product without this cannot be added to one — and when the
+   * mapper quietly omitted it, the marketplace grid's add button had no vendor
+   * to add against and was wired to navigate to the cart instead of filling it.
+   */
+  vendorId: string;
   name: string;
   vendor: string;
   price: number;
@@ -275,6 +282,7 @@ export const menuItemById = (id: string) => MENU.find((m) => m.id === id) ?? MEN
 export const PRODUCTS: Product[] = [
   {
     id: 'dangote-rice',
+    vendorId: 'ikeja-grains-mart',
     name: 'Dangote Rice 50kg',
     vendor: 'Ikeja Grains Mart',
     price: 52000,
@@ -282,6 +290,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     id: 'iphone-charger',
+    vendorId: 'gadgethub-lekki',
     name: 'iPhone 15 Charger',
     vendor: 'GadgetHub Lekki',
     price: 18500,
@@ -290,6 +299,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     id: 'goat-meat-pack',
+    vendorId: 'mile-12-butchers',
     name: 'Fresh Goat Meat (5kg)',
     vendor: 'Mile 12 Butchers',
     price: 24000,
@@ -297,6 +307,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     id: 'jollof-tray',
+    vendorId: 'mama-nkechi',
     name: 'Party Jollof Tray (20 plates)',
     vendor: 'Mama Nkechi Kitchen',
     price: 68000,
@@ -305,6 +316,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     id: 'palm-oil',
+    vendorId: 'oye-market-supplies',
     name: 'Palm Oil 25L Keg',
     vendor: 'Oye Market Supplies',
     price: 41000,
@@ -312,6 +324,7 @@ export const PRODUCTS: Product[] = [
   },
   {
     id: 'paracetamol',
+    vendorId: 'healthplus-pharmacy',
     name: 'Emzor Paracetamol (Carton)',
     vendor: 'HealthPlus Pharmacy',
     price: 15600,

@@ -267,9 +267,25 @@ adminRouter.post(
   '/orders/:id/status',
   validate(
     z.object({
+      /*
+        Every status the state machine can move an order INTO.
+
+        PRICE_PROPOSED, MERCHANT_PAID and AT_DOORSTEP were missing, so the one
+        control meant for unsticking orders could not touch the errand or
+        service lane — the lane whose whole shape is "wait for a human", and so
+        the one that gets stuck. The request was rejected before
+        `canTransition` ever ran, as a 400 "Some fields need fixing".
+
+        QUOTE_REQUESTED and PENDING_PAYMENT stay out, and are not oversights:
+        no row in TRANSITIONS names either as a destination. An order becomes
+        payable by the customer paying and errand-priced by a rider pricing it,
+        not by ops rewinding it — listing them would only produce a 409 one
+        layer deeper.
+      */
       status: z.enum([
         'PLACED', 'VENDOR_ACCEPTED', 'RIDER_ASSIGNED',
-        'PICKED_UP', 'IN_TRANSIT', 'DELIVERED', 'CANCELLED', 'REFUNDED',
+        'PRICE_PROPOSED', 'MERCHANT_PAID',
+        'PICKED_UP', 'IN_TRANSIT', 'AT_DOORSTEP', 'DELIVERED', 'CANCELLED', 'REFUNDED',
       ]),
       note: z.string().max(300).optional(),
     })

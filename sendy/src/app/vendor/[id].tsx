@@ -12,13 +12,14 @@ import { Thumb } from '@/components/ui/Thumb';
 import { useVendor } from '@/lib/api/hooks';
 import { naira } from '@/lib/format';
 import { colors } from '@/lib/theme';
+import { confirmAsync } from '@/lib/confirm';
 import { useApp } from '@/store/app';
 
 /** Vendor / store detail (design.md §10) — cover, trust bar, catalogue by section. */
 export default function VendorDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { addToCart, cartCount, subtotal, setVendorFees } = useApp();
+  const { addToCart, wouldReplaceCart, cartCount, subtotal, setVendorFees } = useApp();
   const { data, isLoading, isError, error, refetch } = useVendor(id);
   const [section, setSection] = useState<string | null>(null);
 
@@ -148,12 +149,24 @@ export default function VendorDetail() {
                   item={item}
                   last={i === visible.length - 1}
                   onPress={() => router.push({ pathname: '/item/[id]', params: { id: item.id } })}
-                  onAdd={() =>
+                  onAdd={async () => {
+                    // Everything on this screen is one vendor's, so this only
+                    // fires when the cart already holds someone else's.
+                    if (
+                      wouldReplaceCart(data.vendorId) &&
+                      !(await confirmAsync(
+                        'Start a new cart?',
+                        `Your cart has items from another seller. Sendy sends one rider to one pickup, so adding from ${data.vendor.name || 'this seller'} will empty it first.`,
+                        'Start new cart'
+                      ))
+                    ) {
+                      return;
+                    }
                     addToCart(
                       { id: item.id, name: item.name, price: item.price, thumb: item.thumb },
                       data.vendorId
-                    )
-                  }
+                    );
+                  }}
                 />
               ))
             ) : (

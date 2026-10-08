@@ -9,6 +9,7 @@ import { hashPassword } from '@/lib/password';
 import { prisma } from '@/lib/prisma';
 import { deliveryCode, normalisePhone, orderReference, paymentReference, referralCode } from '@/lib/reference';
 import { asyncHandler, validate, webBookingLimiter } from '@/middleware';
+import { createUploadSignature } from '@/services/cloudinary';
 import { transitionOrder } from '@/services/orders';
 import { initializeTransaction } from '@/services/paystack';
 
@@ -720,6 +721,46 @@ webOrdersRouter.post(
  * id is a random token, not a sequence, and it is the same authority that
  * already lets the holder pay the order and read the door code.
  */
+
+/**
+ * POST /web/orders/:trackingId/receipt-signature
+ *
+ * Lets a website customer attach a PHOTO of their transfer receipt instead of
+ * a link to one.
+ *
+ * The field on the track page asked for a URL, and almost nobody has one: a
+ * bank app hands you a screenshot, not a shareable address. So the only proof
+ * most customers could actually produce was the one thing the form would not
+ * take, and the field went unused.
+ *
+ * Authorised by the tracking id alone, like merchant-paid and decline either
+ * side of it — that token is what the customer was handed at booking and is
+ * already what authorises confirming the payment itself. Narrowed on purpose:
+ * one fixed folder the caller cannot choose, rate-limited, and only while the
+ * order is at a status where a receipt means anything. An order anyone can
+ * name must not become free image hosting.
+ */
+webOrdersRouter.post(
+  '/orders/:trackingId/receipt-signature',
+  webBookingLimiter,
+  asyncHandler(async (req, res) => {
+    const order = await prisma.order.findUnique({
+      where: { id: req.params.trackingId! },
+      select: { id: true, status: true },
+    });
+    if (!order) throw notFound('Order');
+
+    // PRICE_PROPOSED is where the customer is about to confirm; MERCHANT_PAID
+    // covers adding the receipt they forgot the first time.
+    if (order.status !== 'PRICE_PROPOSED' && order.status !== 'MERCHANT_PAID') {
+      throw conflict('There is nothing to attach a receipt to on this order.');
+    }
+
+    // `errand-photos` rather than a new folder: this is the same kind of
+    // artefact the app already files there for the same orders.
+    res.json({ data: createUploadSignature('errand-photos') });
+  })
+);
 
 /**
  * POST /web/orders/:trackingId/merchant-paid

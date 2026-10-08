@@ -231,6 +231,9 @@ export function toMenuItem(p: ApiProduct): MenuItem {
 export function toProduct(p: ApiProduct): Product {
   return {
     id: p.id,
+    // The grid needs this to add to the cart at all. It was missing here while
+    // `Product` did not declare it, so nothing caught the omission.
+    vendorId: p.vendorId,
     name: p.name,
     vendor: p.vendor?.name ?? '',
     price: koboToNaira(p.priceKobo),

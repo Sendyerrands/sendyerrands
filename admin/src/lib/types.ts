@@ -7,18 +7,33 @@
  * store naira in state, or a stray value renders 100x wrong.
  */
 
+/**
+ * Mirrors the OrderStatus enum in api/prisma/schema.prisma.
+ *
+ * This list had fallen four statuses behind the API — the three errand states
+ * and AT_DOORSTEP were all missing. That is not cosmetic: every exhaustive
+ * `Record<OrderStatus, …>` in this app silently stopped covering them, so the
+ * status-override control read "No moves left from here" on every errand and
+ * service order, which are the ones that actually get stuck. Add here first
+ * when the enum grows; the compiler then points at everything else to fix.
+ */
 export type OrderStatus =
+  // Errand and service lane: priced after the fact, paid direct to the merchant.
+  | 'QUOTE_REQUESTED'
+  | 'PRICE_PROPOSED'
+  | 'MERCHANT_PAID'
   | 'PENDING_PAYMENT'
   | 'PLACED'
   | 'VENDOR_ACCEPTED'
   | 'RIDER_ASSIGNED'
   | 'PICKED_UP'
   | 'IN_TRANSIT'
+  | 'AT_DOORSTEP'
   | 'DELIVERED'
   | 'CANCELLED'
   | 'REFUNDED';
 
-export type OrderType = 'FOOD' | 'PACKAGE' | 'ERRAND' | 'MARKETPLACE';
+export type OrderType = 'FOOD' | 'PACKAGE' | 'ERRAND' | 'MARKETPLACE' | 'SERVICE';
 
 /** Where an order came in from. WEB orders are booked on the website, with no
  *  account behind them — the customer record is minted from their phone. */

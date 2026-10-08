@@ -18,7 +18,7 @@ import {
   useRiders,
   useSetOrderStatus,
 } from '@/lib/hooks';
-import type { OrderDetail, OrderStatus } from '@/lib/types';
+import type { OrderDetail, OrderStatus, OrderType } from '@/lib/types';
 
 /**
  * Mirrors the server's transition table in `api/src/services/orders.ts`.
@@ -32,16 +32,43 @@ import type { OrderDetail, OrderStatus } from '@/lib/types';
  * omits it too.
  */
 const TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
+  // The errand lane, priced after the fact. These four rows were absent, and
+  // because an errand or service order STARTS at QUOTE_REQUESTED the lookup
+  // returned undefined and the control offered nothing at all.
+  QUOTE_REQUESTED: ['RIDER_ASSIGNED', 'CANCELLED'],
+  PRICE_PROPOSED: ['MERCHANT_PAID', 'PRICE_PROPOSED', 'CANCELLED'],
+  MERCHANT_PAID: ['PICKED_UP', 'CANCELLED'],
+
   PENDING_PAYMENT: ['PLACED', 'CANCELLED'],
   PLACED: ['VENDOR_ACCEPTED', 'RIDER_ASSIGNED', 'CANCELLED'],
   VENDOR_ACCEPTED: ['RIDER_ASSIGNED', 'CANCELLED'],
-  RIDER_ASSIGNED: ['PICKED_UP', 'CANCELLED'],
-  PICKED_UP: ['IN_TRANSIT', 'DELIVERED', 'CANCELLED'],
-  IN_TRANSIT: ['DELIVERED', 'CANCELLED'],
+  // An errand's rider prices the job before collecting, so this leads to
+  // PRICE_PROPOSED there and PICKED_UP everywhere else.
+  RIDER_ASSIGNED: ['PRICE_PROPOSED', 'PICKED_UP', 'CANCELLED'],
+  PICKED_UP: ['IN_TRANSIT', 'AT_DOORSTEP', 'DELIVERED', 'CANCELLED'],
+  IN_TRANSIT: ['AT_DOORSTEP', 'DELIVERED', 'CANCELLED'],
+  AT_DOORSTEP: ['DELIVERED', 'CANCELLED'],
   DELIVERED: ['REFUNDED'],
   CANCELLED: ['REFUNDED'],
   REFUNDED: [],
 };
+
+/**
+ * Per-type overrides, mirroring TRANSITIONS_BY_TYPE in api/src/services/orders.ts.
+ *
+ * A service has no pickup and no rider: the provider goes to the customer. So
+ * the shared rows would offer ops moves the API refuses — and offering a move
+ * that 400s is worse than not offering it.
+ */
+const TRANSITIONS_BY_TYPE: Partial<Record<OrderType, Partial<Record<OrderStatus, OrderStatus[]>>>> =
+  {
+    SERVICE: {
+      QUOTE_REQUESTED: ['PRICE_PROPOSED', 'CANCELLED'],
+      PRICE_PROPOSED: ['MERCHANT_PAID', 'PRICE_PROPOSED', 'CANCELLED'],
+      MERCHANT_PAID: ['IN_TRANSIT', 'DELIVERED', 'CANCELLED'],
+      IN_TRANSIT: ['DELIVERED', 'CANCELLED'],
+    },
+  };
 
 /**
  * Side panel for a single order: the audit trail plus the three ops actions.
@@ -434,7 +461,9 @@ function Actions({
   const busy = assign.isPending || setStatus.isPending || refund.isPending;
   const failure = assign.error ?? setStatus.error ?? refund.error;
 
-  const allowed = TRANSITIONS[order.status] ?? [];
+  // Same precedence as the API: a per-type row wins over the shared one.
+  const allowed =
+    TRANSITIONS_BY_TYPE[order.type]?.[order.status] ?? TRANSITIONS[order.status] ?? [];
 
   const alreadyRefunded = order.status === 'REFUNDED';
 

@@ -269,7 +269,16 @@ export default function Profile() {
             onPress={() => router.push('/change-password')}
           />
           <ListRow icon="headset-outline" label="Help & support" onPress={() => router.push('/help')} />
-          <ListRow icon="log-out-outline" label="Log out" danger last onPress={async () => { await signOut(); router.replace('/'); }} />
+          {/*
+            Straight to onboarding, not to '/' — '/' is the splash, which holds
+            for 2.8s and only then routes by `signedIn`. Logging out therefore
+            played the startup animation, which reads as "nothing happened",
+            and a tap during that window used the destination computed on the
+            splash's first render — still the signed-in one if React had not
+            yet committed the cleared token, putting you back in the app. That
+            is the "log out twice" glitch.
+          */}
+          <ListRow icon="log-out-outline" label="Log out" danger last onPress={async () => { await signOut(); router.replace('/onboarding'); }} />
         </Card>
 
         {/* Legal has to be reachable from inside the app, not only from the

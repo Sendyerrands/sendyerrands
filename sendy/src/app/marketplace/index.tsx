@@ -9,15 +9,18 @@ import { Badge, Chip, SectionHeader } from '@/components/ui/atoms';
 import { IconButton } from '@/components/ui/Button';
 import { Screen } from '@/components/ui/Screen';
 import { useMarketplaceProducts, useMarketplaceRequests } from '@/lib/api/hooks';
+import { confirmAsync } from '@/lib/confirm';
 import { STATE_FILTERS } from '@/lib/states';
 import { timeUntil } from '@/lib/format';
 import { colors } from '@/lib/theme';
+import { useApp } from '@/store/app';
 
 const CATEGORIES = ['All', 'Foodstuff', 'Electronics', 'Pharmacy', 'Home', 'Fashion'];
 
 /** Marketplace browse (design.md §11) — listings plus the "post a request" entry. */
 export default function Marketplace() {
   const router = useRouter();
+  const { addToCart, wouldReplaceCart } = useApp();
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('All');
   const [state, setState] = useState('All');
@@ -165,7 +168,33 @@ export default function Marketplace() {
                 product={p}
                 width={colWidth}
                 onPress={() => router.push({ pathname: '/item/[id]', params: { id: p.id } })}
-                onAdd={() => router.push('/cart')}
+                /*
+                  This used to be `router.push('/cart')` — the button looked
+                  like an add button, was labelled "Add <item>", and navigated
+                  to an unchanged cart instead of putting anything in it. It
+                  could not do better at the time: `toProduct` dropped
+                  `vendorId`, and the cart is keyed per vendor.
+
+                  Crossing vendors still empties the cart, because one rider
+                  collects from one pickup — but it now asks first instead of
+                  wiping without a word.
+                */
+                onAdd={async () => {
+                  if (
+                    wouldReplaceCart(p.vendorId) &&
+                    !(await confirmAsync(
+                      'Start a new cart?',
+                      `Your cart has items from another seller. Sendy sends one rider to one pickup, so adding from ${p.vendor || 'this seller'} will empty it first.`,
+                      'Start new cart'
+                    ))
+                  ) {
+                    return;
+                  }
+                  addToCart(
+                    { id: p.id, name: p.name, price: p.price, thumb: p.thumb },
+                    p.vendorId
+                  );
+                }}
               />
             ))}
           </View>

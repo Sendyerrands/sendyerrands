@@ -9,18 +9,22 @@ import { useOrders } from '@/lib/hooks';
 import type { OrderChannel, OrderStatus, OrderType } from '@/lib/types';
 
 const STATUSES: OrderStatus[] = [
+  'QUOTE_REQUESTED',
+  'PRICE_PROPOSED',
+  'MERCHANT_PAID',
   'PENDING_PAYMENT',
   'PLACED',
   'VENDOR_ACCEPTED',
   'RIDER_ASSIGNED',
   'PICKED_UP',
   'IN_TRANSIT',
+  'AT_DOORSTEP',
   'DELIVERED',
   'CANCELLED',
   'REFUNDED',
 ];
 
-const TYPES: OrderType[] = ['FOOD', 'PACKAGE', 'ERRAND', 'MARKETPLACE'];
+const TYPES: OrderType[] = ['FOOD', 'PACKAGE', 'ERRAND', 'MARKETPLACE', 'SERVICE'];
 
 /**
  * "Website" rather than "Web": ops read this column to know where a customer

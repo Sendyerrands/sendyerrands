@@ -58,6 +58,12 @@ function Spinner() {
  * colour is never the only signal.
  */
 const ORDER_TONE: Record<OrderStatus, string> = {
+  // Errand lane. QUOTE_REQUESTED and PRICE_PROPOSED are both waiting on
+  // somebody — a rider to pick it up, a customer to accept — so both are amber.
+  QUOTE_REQUESTED: 'bg-warning/10 text-warning',
+  PRICE_PROPOSED: 'bg-warning/10 text-warning',
+  // Paid the merchant: in flight, nothing for ops to do.
+  MERCHANT_PAID: 'bg-info/10 text-info',
   // Not yet paid — nothing for ops to do, so it stays neutral rather than amber.
   PENDING_PAYMENT: 'bg-muted/15 text-body',
   PLACED: 'bg-warning/10 text-warning',
@@ -65,6 +71,9 @@ const ORDER_TONE: Record<OrderStatus, string> = {
   RIDER_ASSIGNED: 'bg-info/10 text-info',
   PICKED_UP: 'bg-info/10 text-info',
   IN_TRANSIT: 'bg-info/10 text-info',
+  // At the door, waiting on the customer to come out — amber, someone is stood
+  // outside.
+  AT_DOORSTEP: 'bg-warning/10 text-warning',
   DELIVERED: 'bg-success/10 text-success',
   CANCELLED: 'bg-error/10 text-error',
   REFUNDED: 'bg-muted/15 text-body',

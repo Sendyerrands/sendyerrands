@@ -10,6 +10,7 @@ import { Thumb } from '@/components/ui/Thumb';
 import { useProduct } from '@/lib/api/hooks';
 import { naira } from '@/lib/format';
 import { colors } from '@/lib/theme';
+import { confirmAsync } from '@/lib/confirm';
 import { useApp } from '@/store/app';
 
 /**
@@ -24,7 +25,7 @@ import { useApp } from '@/store/app';
 export default function ItemDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { addToCart, setVendorFees } = useApp();
+  const { addToCart, wouldReplaceCart, setVendorFees } = useApp();
 
   const { data: item, isLoading, isError, error, refetch } = useProduct(id);
 
@@ -150,7 +151,20 @@ export default function ItemDetail() {
         <Button
           title="Add to cart"
           trailing={naira(total)}
-          onPress={() => {
+          onPress={async () => {
+            // Asked once, before the qty loop — not per unit, which would put
+            // the same dialog up `qty` times for one tap.
+            if (
+              wouldReplaceCart(item.vendorId) &&
+              !(await confirmAsync(
+                'Start a new cart?',
+                'Your cart has items from another seller. Sendy sends one rider to one pickup, so adding this will empty it first.',
+                'Start new cart'
+              ))
+            ) {
+              return;
+            }
+
             // Without this the cart previews the store's default ₦1,300 while
             // the server charges this vendor's real fee at checkout.
             if (item.deliveryFee != null) {

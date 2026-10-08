@@ -107,7 +107,8 @@ export default function VendorMe() {
             last
             onPress={async () => {
               await signOut();
-              router.replace('/');
+              // '/signin', not the splash — see profile.tsx.
+              router.replace('/signin');
             }}
           />
         </Card>

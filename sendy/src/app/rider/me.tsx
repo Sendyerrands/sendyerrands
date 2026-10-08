@@ -187,7 +187,10 @@ export default function RiderMe() {
             last
             onPress={async () => {
               await signOut();
-              router.replace('/');
+              // '/signin', not '/' — the splash holds 2.8s and then routes by
+              // `signedIn`, so logging out replayed the startup animation and a
+              // tap during it could land back in the rider app.
+              router.replace('/signin');
             }}
           />
         </Card>
