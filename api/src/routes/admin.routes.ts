@@ -805,6 +805,39 @@ adminRouter.post(
         },
       });
 
+      /*
+        The proposed tiers become real rows only here.
+
+        They travel on the application as JSON because an application is a
+        claim: a rejected one must not leave bookable packages behind, and a
+        pending one must not be orderable. Approval is the moment the claim
+        becomes a listing.
+
+        Parsed defensively — the column is Json, so nothing in the database
+        guarantees its shape, and ops approving an application must not 500
+        because an old row predates the field or was written by hand.
+      */
+      const proposed = Array.isArray(application.packages) ? application.packages : [];
+      const seen = new Set<string>();
+      const rows = proposed.flatMap((raw) => {
+        const pkg = raw as Record<string, unknown>;
+        const tier = String(pkg?.tier ?? '');
+        if (!['BASIC', 'STANDARD', 'VIP'].includes(tier) || seen.has(tier)) return [];
+        const description = String(pkg?.description ?? '').trim();
+        if (!description) return [];
+        seen.add(tier);
+        return [
+          {
+            providerId: provider.id,
+            tier: tier as 'BASIC' | 'STANDARD' | 'VIP',
+            name: pkg?.name ? String(pkg.name).trim().slice(0, 60) : null,
+            description: description.slice(0, 400),
+            priceKobo: Math.max(0, Math.round(Number(pkg?.priceKobo) || 0)),
+          },
+        ];
+      });
+      if (rows.length) await tx.servicePackage.createMany({ data: rows });
+
       const app = await tx.providerApplication.update({
         where: { id: application.id },
         data: { status: 'APPROVED', note, reviewedAt: new Date(), providerId: provider.id },

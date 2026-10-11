@@ -7,6 +7,8 @@ import { deliveryCode, orderReference } from '@/lib/reference';
 import { asyncHandler, validate } from '@/middleware';
 import { requireAuth } from '@/middleware/auth';
 import { transitionOrder } from '@/services/orders';
+import { listBanks, resolveAccount } from '@/services/paystack';
+import { computeServiceCharges, describeServiceCharges } from '@/services/service-pricing';
 
 /**
  * Services — someone comes to you and does a job.
@@ -100,6 +102,16 @@ servicesRouter.get(
   asyncHandler(async (req, res) => {
     const provider = await prisma.serviceProvider.findUnique({
       where: { slug: req.params.slug! },
+      include: {
+        /* Cheapest first, so the list reads as a ladder. Inactive tiers are
+           left out entirely rather than shown greyed: a price a provider has
+           retired is not a price. */
+        packages: {
+          where: { isActive: true },
+          orderBy: { priceKobo: 'asc' },
+          select: { id: true, tier: true, name: true, description: true, priceKobo: true },
+        },
+      },
     });
     if (!provider) throw notFound('Provider');
     res.json({ data: provider });
@@ -119,6 +131,15 @@ const bookSchema = z.object({
   scheduledFor: z.string().datetime().optional(),
   /** What the customer expects to pay the provider. Never charged. */
   budgetKobo: z.number().int().min(0).optional(),
+  /**
+   * A tier the provider publishes, if the customer picked one.
+   *
+   * Picking one is what makes a service bookable at a known price: the
+   * provider has already said what that tier costs, so there is nothing left
+   * to quote. Without it the booking goes out unpriced and waits for a quote,
+   * which is the ordinary path and stays exactly as it was.
+   */
+  packageId: z.string().min(1).max(40).optional(),
 });
 
 /**
@@ -156,22 +177,48 @@ servicesRouter.post(
       );
     }
 
-    // Copied, not referenced: a later price change must not rewrite what this
-    // customer was charged.
-    const arrivalFeeKobo =
-      body.arrivalMode === 'BIKE' ? provider.bikeFeeKobo : provider.carFeeKobo;
+    /*
+      A chosen tier is a price the provider has already published, so there is
+      nothing left to quote: the booking is priced on the spot and goes out at
+      PRICE_PROPOSED. Without one it goes out unpriced, as before.
+
+      Looked up against THIS provider, not by id alone — otherwise a customer
+      could book Kay Cuts at a cheaper provider's VIP price by passing someone
+      else's package id.
+    */
+    const pkg = body.packageId
+      ? await prisma.servicePackage.findFirst({
+          where: { id: body.packageId, providerId: provider.id, isActive: true },
+          select: { id: true, priceKobo: true, tier: true },
+        })
+      : null;
+    if (body.packageId && !pkg) {
+      throw badRequest('That package is no longer offered. Pick another, or ask for a quote.');
+    }
+
+    /*
+      The three charges, from the one place that defines them.
+
+      Note what is NOT charged any more: the flat bike/car arrival fee.
+      Transport is now 5% of the quote, so arrivalFeeKobo is written as 0.
+      arrivalMode is still asked and still stored — the customer needs to know
+      whether someone arrives on a bike with a bag or in a car with equipment,
+      and some providers cannot ride at all.
+    */
+    const charges = computeServiceCharges(pkg?.priceKobo ?? 0);
 
     const order = await prisma.order.create({
       data: {
         reference: orderReference(),
         type: 'SERVICE',
         channel: 'APP',
-        status: 'QUOTE_REQUESTED',
+        status: pkg ? 'PRICE_PROPOSED' : 'QUOTE_REQUESTED',
         deliveryCode: deliveryCode(),
         customer: { connect: { id: customerId } },
-        // What the customer owes Sendy — the arrival, and only the arrival.
-        serviceFeeKobo: arrivalFeeKobo,
-        totalKobo: arrivalFeeKobo,
+        // Zero until there is a price. An unpriced booking showing ₦500 of
+        // service fee would be charging for a job nobody has agreed to yet.
+        serviceFeeKobo: charges.serviceFeeKobo,
+        totalKobo: charges.totalKobo,
         serviceDetail: {
           create: {
             providerId: provider.id,
@@ -180,16 +227,25 @@ servicesRouter.post(
             address: body.address,
             landmark: body.landmark ?? null,
             arrivalMode: body.arrivalMode,
-            arrivalFeeKobo,
+            arrivalFeeKobo: 0,
+            packageId: pkg?.id ?? null,
+            quotedKobo: pkg ? pkg.priceKobo : null,
+            serviceFeeKobo: charges.serviceFeeKobo,
+            serviceChargeKobo: charges.serviceChargeKobo,
+            transportKobo: charges.transportKobo,
             scheduledFor: body.scheduledFor ? new Date(body.scheduledFor) : null,
             budgetKobo: body.budgetKobo ?? null,
           },
         },
       },
-      include: { serviceDetail: { include: { provider: true } } },
+      include: { serviceDetail: { include: { provider: true, package: true } } },
     });
 
-    res.status(201).json({ data: order });
+    res.status(201).json({
+      data: order,
+      charges,
+      breakdown: describeServiceCharges(charges),
+    });
   })
 );
 
@@ -316,17 +372,50 @@ servicesRouter.post(
       throw conflict('This job is past the pricing stage.');
     }
 
-    await prisma.serviceDetail.update({
-      where: { orderId: detail.orderId },
-      data: { quotedKobo },
-    });
+    /*
+      The quote is the base for everything Sendy charges, so the breakdown is
+      computed and stored the moment it arrives rather than at read time. A
+      rate change next month must not silently rewrite what this customer was
+      quoted today.
+
+      The order's own total is the customer-facing number: quote plus the three
+      charges. The provider is paid the quote itself - the charges sit on top
+      rather than being deducted, so the provider receives the figure they
+      actually named.
+    */
+    const charges = computeServiceCharges(quotedKobo);
+
+    await prisma.$transaction([
+      prisma.serviceDetail.update({
+        where: { orderId: detail.orderId },
+        data: {
+          quotedKobo,
+          serviceFeeKobo: charges.serviceFeeKobo,
+          serviceChargeKobo: charges.serviceChargeKobo,
+          transportKobo: charges.transportKobo,
+        },
+      }),
+      prisma.order.update({
+        where: { id: detail.orderId },
+        data: { totalKobo: charges.totalKobo, serviceFeeKobo: charges.serviceFeeKobo },
+      }),
+    ]);
 
     const updated = await transitionOrder(detail.orderId, 'PRICE_PROPOSED', {
       type: 'vendor',
       id: req.auth!.id,
     });
 
-    res.json({ data: { order: updated, quotedKobo } });
+    res.json({
+      data: {
+        order: updated,
+        quotedKobo,
+        /* The customer is shown what each charge is, not just a total they
+           have to take on trust. */
+        charges,
+        breakdown: describeServiceCharges(charges),
+      },
+    });
   })
 );
 
@@ -392,10 +481,51 @@ servicesRouter.post(
       throw badRequest('That code does not match. Ask the customer to read it from their booking.');
     }
 
-    await prisma.serviceDetail.update({
-      where: { orderId: detail.orderId },
-      data: { completedAt: new Date() },
+    /*
+      Completing the job is what makes the provider owed money.
+
+      Written here rather than at payout time because the payout reads from
+      earnings: with no row there is nothing to pay out, and the provider's
+      balance would sit at zero however much work they did. The same shape the
+      rider flow uses, for the same reason.
+
+      The amounts come from what was STORED at quote time, not from recomputing
+      the rates now - this is the number the customer agreed to, and a rate
+      change between quote and completion must not move it.
+
+      `create` rather than `upsert`, with orderId unique: completing twice is a
+      double payment, and the database refusing it is better than this code
+      remembering to check.
+    */
+    const feesKobo =
+      detail.serviceFeeKobo + detail.serviceChargeKobo + detail.transportKobo;
+    const grossKobo = detail.quotedKobo ?? 0;
+
+    await prisma.$transaction(async (tx) => {
+      await tx.serviceDetail.update({
+        where: { orderId: detail.orderId },
+        data: { completedAt: new Date() },
+      });
+
+      // A job completed with no quote earns nothing rather than a negative
+      // number. It should not be reachable - completing requires MERCHANT_PAID,
+      // which requires a quote - but a belt here is cheaper than a support
+      // ticket about a provider who owes Sendy money.
+      if (grossKobo > 0) {
+        await tx.providerEarning.create({
+          data: {
+            providerId: detail.providerId,
+            orderId: detail.orderId,
+            grossKobo,
+            feesKobo,
+            // The provider is paid their quote; the charges were added on top
+            // of it, not taken out of it.
+            netKobo: grossKobo,
+          },
+        });
+      }
     });
+
     const updated = await transitionOrder(detail.orderId, 'DELIVERED', {
       type: 'vendor',
       id: req.auth!.id,
@@ -438,5 +568,228 @@ servicesRouter.post(
       { note: reason, extra: { cancelReason: reason ?? 'Price declined by customer' } }
     );
     res.json({ data: updated });
+  })
+);
+
+
+/* =========================================================================
+   Getting paid.
+   =========================================================================
+
+   Deliberately the same endpoints, in the same order, with the same rules as
+   the rider's: /me, /earnings, /banks, /payout-account/resolve,
+   /payout-account, /payouts. A provider portal that works differently from the
+   rider portal is two things to maintain and two things to explain, and there
+   is nothing about a barber's bank account that differs from a rider's.
+
+   None of this existed. Services shipped with the customer paying the provider
+   bank-to-bank, so there was nothing to pay out and no account to pay it to.
+   Sendy now collects, which makes Sendy a debtor - and a debtor needs somewhere
+   to send the money.
+   ========================================================================= */
+
+/** GET /services/me — the provider's own listing, as they see it. */
+servicesRouter.get(
+  '/me',
+  requireAuth('provider'),
+  asyncHandler(async (req, res) => {
+    const provider = await prisma.serviceProvider.findUnique({
+      where: { id: req.auth!.id },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        category: true,
+        bio: true,
+        tags: true,
+        area: true,
+        state: true,
+        phone: true,
+        email: true,
+        avatarUrl: true,
+        rating: true,
+        ratingCount: true,
+        isVerified: true,
+        isAvailable: true,
+        canTravelByBike: true,
+        /* The payout destination, minus anything that would let a stolen
+           session move money: the recipient code is Paystack's handle and is
+           never sent to a client. */
+        bankCode: true,
+        bankName: true,
+        bankAccountNo: true,
+        bankAccountName: true,
+        packages: {
+          where: { isActive: true },
+          orderBy: { priceKobo: 'asc' },
+          select: { id: true, tier: true, name: true, description: true, priceKobo: true },
+        },
+      },
+    });
+    if (!provider) throw notFound('Provider');
+    res.json({ data: provider });
+  })
+);
+
+/** PATCH /services/me/availability — the provider's own on/off switch. */
+servicesRouter.patch(
+  '/me/availability',
+  requireAuth('provider'),
+  validate(z.object({ isAvailable: z.boolean() })),
+  asyncHandler(async (req, res) => {
+    const { isAvailable } = req.body as { isAvailable: boolean };
+    const provider = await prisma.serviceProvider.update({
+      where: { id: req.auth!.id },
+      data: { isAvailable },
+      select: { isAvailable: true },
+    });
+    res.json({ data: provider });
+  })
+);
+
+/**
+ * GET /services/earnings — what they have made, and what is still owed.
+ *
+ * `payable` is the number that matters and the one most easily got wrong: it
+ * is what is neither already paid out nor voided. An earning attached to a
+ * payout that later failed has its payoutId cleared and returns here, which is
+ * why the filter is on isPaidOut rather than on payoutId being null.
+ */
+servicesRouter.get(
+  '/earnings',
+  requireAuth('provider'),
+  asyncHandler(async (req, res) => {
+    const providerId = req.auth!.id;
+
+    const [agg, payable, recent] = await Promise.all([
+      prisma.providerEarning.aggregate({
+        where: { providerId, voidedAt: null },
+        _sum: { netKobo: true, feesKobo: true, grossKobo: true },
+        _count: { _all: true },
+      }),
+      prisma.providerEarning.aggregate({
+        where: { providerId, voidedAt: null, isPaidOut: false },
+        _sum: { netKobo: true },
+      }),
+      prisma.providerEarning.findMany({
+        where: { providerId },
+        orderBy: { createdAt: 'desc' },
+        take: 30,
+        select: {
+          id: true,
+          grossKobo: true,
+          feesKobo: true,
+          netKobo: true,
+          isPaidOut: true,
+          paidOutAt: true,
+          voidedAt: true,
+          createdAt: true,
+          order: { select: { reference: true } },
+        },
+      }),
+    ]);
+
+    res.json({
+      data: {
+        jobsCompleted: agg._count._all,
+        grossKobo: agg._sum.grossKobo ?? 0,
+        /* What Sendy took across those jobs. Shown rather than hidden: a
+           provider who cannot see the deduction assumes the worst about it. */
+        feesKobo: agg._sum.feesKobo ?? 0,
+        earnedKobo: agg._sum.netKobo ?? 0,
+        payableKobo: payable._sum.netKobo ?? 0,
+        recent,
+      },
+    });
+  })
+);
+
+/** GET /services/banks — the list, for the payout form. */
+servicesRouter.get(
+  '/banks',
+  requireAuth('provider'),
+  asyncHandler(async (_req, res) => {
+    res.json({ data: await listBanks() });
+  })
+);
+
+const providerAccountSchema = z.object({
+  bankCode: z.string().min(1).max(10),
+  accountNumber: z.string().regex(/^\d{10}$/, 'A Nigerian account number is 10 digits.'),
+});
+
+/**
+ * POST /services/payout-account/resolve — who owns this account?
+ *
+ * Read-only. The provider sees the name the bank returns and confirms it
+ * before anything is stored: the difference between a typo caught in three
+ * seconds and a transfer into a stranger's account, which cannot be reversed.
+ */
+servicesRouter.post(
+  '/payout-account/resolve',
+  requireAuth('provider'),
+  validate(providerAccountSchema),
+  asyncHandler(async (req, res) => {
+    const { bankCode, accountNumber } = req.body as z.infer<typeof providerAccountSchema>;
+    res.json({ data: await resolveAccount(accountNumber, bankCode) });
+  })
+);
+
+/** PUT /services/payout-account — stores the destination. */
+servicesRouter.put(
+  '/payout-account',
+  requireAuth('provider'),
+  validate(providerAccountSchema),
+  asyncHandler(async (req, res) => {
+    const { bankCode, accountNumber } = req.body as z.infer<typeof providerAccountSchema>;
+
+    const bank = (await listBanks()).find((b) => b.code === bankCode);
+    if (!bank) throw badRequest('Pick a bank from the list.');
+
+    // Resolved again rather than trusting a name the client sends alongside
+    // the number: the stored name is what a human reads before releasing
+    // money, so it comes from the bank, not from the form.
+    const resolved = await resolveAccount(accountNumber, bankCode);
+
+    const provider = await prisma.serviceProvider.update({
+      where: { id: req.auth!.id },
+      data: {
+        bankCode,
+        bankAccountNo: accountNumber,
+        bankName: bank.name,
+        bankAccountName: resolved.accountName,
+        // Changing the destination invalidates the recipient Paystack holds;
+        // reusing it would send the next payout to the old account.
+        paystackRecipientCode: null,
+      },
+      select: { bankCode: true, bankAccountNo: true, bankName: true, bankAccountName: true },
+    });
+
+    res.json({ data: provider });
+  })
+);
+
+/** GET /services/payouts — history, newest first. */
+servicesRouter.get(
+  '/payouts',
+  requireAuth('provider'),
+  asyncHandler(async (req, res) => {
+    const payouts = await prisma.providerPayout.findMany({
+      where: { providerId: req.auth!.id },
+      orderBy: { createdAt: 'desc' },
+      take: 30,
+      select: {
+        id: true,
+        amountKobo: true,
+        status: true,
+        reference: true,
+        bankName: true,
+        bankAccountNo: true,
+        failureReason: true,
+        createdAt: true,
+        settledAt: true,
+      },
+    });
+    res.json({ data: payouts });
   })
 );

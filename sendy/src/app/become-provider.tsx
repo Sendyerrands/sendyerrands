@@ -23,6 +23,8 @@ import { colors } from '@/lib/theme';
  * applicant cannot meaningfully price those yet, and asking would cost
  * completions on a form whose whole purpose is low friction.
  */
+type PackageTier = 'BASIC' | 'STANDARD' | 'VIP';
+
 export default function BecomeProvider() {
   const router = useRouter();
   const apply = useApplyAsProvider();
@@ -36,6 +38,38 @@ export default function BecomeProvider() {
   const [bio, setBio] = useState('');
   const [canBike, setCanBike] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  /*
+    Packages are opt-in.
+
+    Off by default, and the form is complete without them. A provider who does
+    not sell tiers should not have to dismiss three empty boxes to apply, and
+    one who does should not have to invent a Basic they never offer just
+    because the form has a slot for it — so each tier is filled or left blank,
+    and blank ones are simply not submitted.
+  */
+  const [offersPackages, setOffersPackages] = useState(false);
+  const [pkgs, setPkgs] = useState<Record<PackageTier, { desc: string; price: string }>>({
+    BASIC: { desc: '', price: '' },
+    STANDARD: { desc: '', price: '' },
+    VIP: { desc: '', price: '' },
+  });
+
+  const setPkg = (tier: PackageTier, patch: Partial<{ desc: string; price: string }>) =>
+    setPkgs((prev) => ({ ...prev, [tier]: { ...prev[tier], ...patch } }));
+
+  /* A tier counts only when it has both a description and a price. Half a
+     package is not a package, and sending one would publish a tier with no
+     price or a price with nothing in it. */
+  const filledPackages = (Object.keys(pkgs) as PackageTier[])
+    .filter((t) => pkgs[t].desc.trim().length >= 3 && Number(pkgs[t].price) > 0)
+    .map((t) => ({
+      tier: t,
+      description: pkgs[t].desc.trim(),
+      // Naira in the form, kobo on the wire — money is integer kobo
+      // everywhere behind this screen.
+      priceKobo: Math.round(Number(pkgs[t].price) * 100),
+    }));
 
   const pending = applications.find((a) => a.status === 'PENDING');
   const rejected = applications.find((a) => a.status === 'REJECTED');
@@ -59,6 +93,7 @@ export default function BecomeProvider() {
         email: email.trim() || undefined,
         bio: bio.trim() || undefined,
         canTravelByBike: canBike,
+        ...(offersPackages && filledPackages.length ? { packages: filledPackages } : {}),
       },
       {
         onError: (err) =>
@@ -219,6 +254,73 @@ export default function BecomeProvider() {
             Car only — I carry equipment
           </Text>
         </Pressable>
+
+        {/* ── packages ─────────────────────────────────────────────────── */}
+        <Text className="text-ink text-[15px] font-semibold mt-6 mb-1">
+          Do you sell set packages?
+        </Text>
+        <Text className="text-body text-[13px] mb-2.5 leading-[18px]">
+          Optional. If you have fixed offers, list them and customers can book at that price
+          without waiting for a quote. If you&apos;d rather quote each job, skip this.
+        </Text>
+
+        <View className="flex-row mb-3">
+          <Pressable
+            onPress={() => setOffersPackages(false)}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: !offersPackages }}
+            className={`flex-1 items-center rounded-md py-2.5 mr-2 border ${
+              !offersPackages ? 'border-pink-600 bg-pink-50' : 'border-hairline bg-white'
+            }`}
+          >
+            <Text className="text-ink text-[14px]">I quote each job</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setOffersPackages(true)}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: offersPackages }}
+            className={`flex-1 items-center rounded-md py-2.5 border ${
+              offersPackages ? 'border-pink-600 bg-pink-50' : 'border-hairline bg-white'
+            }`}
+          >
+            <Text className="text-ink text-[14px]">I have packages</Text>
+          </Pressable>
+        </View>
+
+        {offersPackages ? (
+          <>
+            {(['BASIC', 'STANDARD', 'VIP'] as PackageTier[]).map((tier) => (
+              <View key={tier} className="rounded-md border border-hairline p-3.5 mb-3">
+                <Text className="text-ink text-[14px] font-semibold mb-2">
+                  {tier.charAt(0) + tier.slice(1).toLowerCase()}
+                </Text>
+                <Input
+                  label="What's included?"
+                  value={pkgs[tier].desc}
+                  onChangeText={(v) => setPkg(tier, { desc: v })}
+                  placeholder={
+                    tier === 'BASIC'
+                      ? 'Haircut only'
+                      : tier === 'STANDARD'
+                        ? 'Haircut and beard trim'
+                        : 'Haircut, beard, hot towel, home visit'
+                  }
+                />
+                <Input
+                  label="Price (₦)"
+                  value={pkgs[tier].price}
+                  onChangeText={(v) => setPkg(tier, { price: v.replace(/[^0-9]/g, '') })}
+                  placeholder="5000"
+                  keyboardType="number-pad"
+                />
+              </View>
+            ))}
+            <Text className="text-muted text-[12.5px] mb-1 leading-[17px]">
+              Leave any tier blank and it simply won&apos;t be offered. You can change these
+              later.
+            </Text>
+          </>
+        ) : null}
 
         {error ? <Text className="text-error text-[13px] mt-4">{error}</Text> : null}
 

@@ -5,6 +5,7 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 
 import { CategoryGrid } from '@/components/CategoryGrid';
 import { PromoCarousel } from '@/components/PromoCarousel';
+import { CheersAd } from '@/components/CheersAd';
 import { RidesBanner } from '@/components/RidesBanner';
 import { EmptyState, SectionGap, SectionHeader, Skeleton } from '@/components/ui/atoms';
 import { Button, IconButton } from '@/components/ui/Button';
@@ -86,6 +87,12 @@ export default function Home() {
         <View className="mt-6">
           <CategoryGrid />
         </View>
+
+        {/* A paid placement, above Sendy Rides and clearly marked as one.
+            Kept out of PromoCarousel on purpose: that carousel rotates Sendy's
+            own offers, and mixing someone else's advertising into it would
+            make the label the only thing separating an ad from a product. */}
+        <CheersAd />
 
         {/* Under the pillars, not in the carousel: this is an announcement, so
             it holds still rather than rotating away. */}

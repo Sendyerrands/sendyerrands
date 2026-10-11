@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Card, EmptyState } from '@/components/ui/atoms';
 import { Button } from '@/components/ui/Button';
@@ -11,8 +11,10 @@ import { ApiError } from '@/lib/api/client';
 import type { ApiProviderJob } from '@/lib/api/endpoints';
 import {
   useProviderComplete,
+  useProviderEarnings,
   useProviderEnRoute,
   useProviderJobs,
+  useProviderMe,
   useQuoteServiceJob,
 } from '@/lib/api/hooks';
 import { naira } from '@/lib/format';
@@ -35,6 +37,8 @@ export default function ProviderHome() {
   const router = useRouter();
   const { ready, signedIn, actor, signOut } = useApp();
   const { data: jobs = [], isLoading } = useProviderJobs();
+  const { data: earnings } = useProviderEarnings();
+  const { data: me } = useProviderMe();
 
   // Same gate the vendor and rider apps use: another actor's token would 403
   // on every panel here, which reads as a broken screen rather than a wrong
@@ -89,6 +93,35 @@ export default function ProviderHome() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+        {/*
+          Money first, above the jobs.
+
+          A provider checks what they are owed far more often than they do
+          anything else here, and until now there was nowhere to check it at
+          all - the portal was a jobs list and a sign-out button. The amount is
+          on the row rather than behind the tap, because the usual question is
+          "how much", not "show me a screen".
+        */}
+        <Pressable
+          onPress={() => router.push('/provider/earnings')}
+          accessibilityRole="button"
+          accessibilityLabel={`Earnings. ${naira((earnings?.payableKobo ?? 0) / 100)} ready to pay out.`}
+          className="flex-row items-center rounded-lg border border-hairline p-3.5 mb-4 active:bg-surface"
+        >
+          <View className="w-9 h-9 rounded-full bg-pink-50 items-center justify-center">
+            <Ionicons name="wallet-outline" size={18} color={colors.pink[600]} />
+          </View>
+          <View className="ml-3 flex-1">
+            <Text className="text-ink text-[14.5px] font-semibold">Earnings</Text>
+            <Text className="text-muted text-[12.5px] mt-0.5">
+              {me?.bankAccountNo
+                ? `${naira((earnings?.payableKobo ?? 0) / 100)} ready to pay out`
+                : 'Add a bank account to get paid'}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={17} color={colors.muted} />
+        </Pressable>
+
         {isLoading ? (
           <Text className="text-muted text-[13px]">Loading…</Text>
         ) : jobs.length === 0 ? (

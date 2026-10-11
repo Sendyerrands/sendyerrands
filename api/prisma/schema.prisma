@@ -459,6 +459,7 @@ model Order {
   errandDetail  ErrandDetail?
   packageDetail PackageDetail?
   serviceDetail ServiceDetail?
+  providerEarning ProviderEarning?
   request         MarketplaceRequest?
   review          Review?
   supportRequests SupportRequest[]
@@ -675,12 +676,138 @@ model ServiceProvider {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  /// Payout destination, verified against Paystack before any transfer.
+  /// Identical in shape to Rider's, because it is the same job: Sendy now
+  /// collects the customer's money and owes the provider theirs, which it did
+  /// not when the customer paid the provider bank-to-bank.
+  bankCode              String?
+  bankAccountNo         String?
+  bankName              String?
+  /// As Paystack resolved it, never as the provider typed it. This is the only
+  /// evidence the account exists and belongs to someone.
+  bankAccountName       String?
+  /// Created once and reused, like the rider's.
+  paystackRecipientCode String?
+
   orders      ServiceDetail[]
   application ProviderApplication?
+  packages    ServicePackage[]
+  earnings    ProviderEarning[]
+  payouts     ProviderPayout[]
 
   @@index([category])
   @@index([state, category])
   @@map("service_providers")
+}
+
+/// Basic / Standard / VIP.
+///
+/// Fixed tiers rather than free-form names so a customer comparing two
+/// providers is comparing the same three rungs. What sits INSIDE a tier is the
+/// provider's own words - a barber's VIP and a cleaner's VIP have nothing in
+/// common, and pretending otherwise would mean inventing a taxonomy neither
+/// would recognise.
+enum PackageTier {
+  BASIC
+  STANDARD
+  VIP
+}
+
+/// One tier a provider offers.
+///
+/// Entirely optional. A provider who just does jobs and quotes for them has no
+/// rows here, books exactly as before, and is not pushed into inventing tiers
+/// to be listed - which is why this is a separate table rather than three
+/// columns on the provider.
+model ServicePackage {
+  id         String      @id @default(cuid())
+  providerId String
+  tier       PackageTier
+  /// Their own name for it, if they have one: "Fresh Cut", "Deep Clean".
+  /// Falls back to the tier when empty.
+  name       String?
+  /// What is included, written by the provider at registration.
+  description String
+  priceKobo  Int
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  provider ServiceProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  bookings ServiceDetail[]
+
+  /// One row per tier per provider - two "VIP"s would be a pricing bug.
+  @@unique([providerId, tier])
+  @@index([providerId, isActive])
+  @@map("service_packages")
+}
+
+/// What a provider is owed for one completed job.
+///
+/// A separate table from RiderEarning rather than a nullable riderId on it:
+/// that column is NOT NULL on live rows and relaxing it would be a migration
+/// touching real data to save a table.
+model ProviderEarning {
+  id         String @id @default(cuid())
+  providerId String
+  orderId    String @unique
+
+  /// What the customer paid for the work itself - the provider's quote.
+  grossKobo Int
+  /// Sendy's three charges on this job, totalled.
+  feesKobo  Int
+  /// What actually gets transferred.
+  netKobo   Int
+
+  isPaidOut Boolean   @default(false)
+  paidOutAt DateTime?
+  payoutId  String?
+
+  /// A refunded job's earning is never payable. Same reasoning as the rider's.
+  voidedAt   DateTime?
+  voidReason String?
+
+  createdAt DateTime @default(now())
+
+  provider ServiceProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  order    Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  payout   ProviderPayout? @relation(fields: [payoutId], references: [id], onDelete: SetNull)
+
+  @@index([providerId, createdAt])
+  @@index([providerId, isPaidOut])
+  @@index([payoutId])
+  @@map("provider_earnings")
+}
+
+/// One bank transfer to one provider, covering a set of earnings.
+model ProviderPayout {
+  id         String       @id @default(cuid())
+  providerId String
+  amountKobo Int
+  status     PayoutStatus @default(PENDING)
+
+  /// Idempotency key, sent to Paystack as the transfer reference.
+  reference String @unique
+
+  transferCode  String?
+  recipientCode String?
+
+  /// Snapshot of where it went: a provider may change bank later, and what a
+  /// past payout says must not change with them.
+  bankName      String?
+  bankAccountNo String?
+
+  failureReason   String?
+  providerPayload Json?
+  createdAt       DateTime  @default(now())
+  settledAt       DateTime?
+
+  provider ServiceProvider   @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  earnings ProviderEarning[]
+
+  @@index([providerId, createdAt])
+  @@index([status])
+  @@map("provider_payouts")
 }
 
 /// The service half of an order, mirroring ErrandDetail.
@@ -696,11 +823,31 @@ model ServiceDetail {
   address String
   landmark String?
 
-  /// How they travel, and what Sendy charged for it. The fee is copied here at
-  /// booking rather than read back from the provider, so a later price change
-  /// cannot rewrite what someone was already charged.
+  /// How they travel. Still asked, because a cleaner with a vacuum cannot ride
+  /// and the customer needs to know who is turning up how.
   arrivalMode    ArrivalMode
+  /// LEGACY. The flat per-provider bike/car arrival fee this used to hold is
+  /// no longer charged - transport is now 5% of the quote (transportKobo
+  /// below). Kept and written as 0 on new bookings rather than dropped, so
+  /// orders taken under the old model still say what they actually charged.
   arrivalFeeKobo Int
+
+  /// The three charges, each snapshotted at quote time.
+  ///
+  /// Copied here rather than recomputed on read: rates change, and what a
+  /// customer was charged last month must not move when they do. They are also
+  /// stored apart rather than as one total because a receipt has to be able to
+  /// show the customer which of the three a number came from.
+  ///
+  /// serviceFeeKobo is flat. The other two are percentages of the provider's
+  /// quote, so all three are zero until there is a quote to take them from.
+  serviceFeeKobo    Int @default(0)
+  serviceChargeKobo Int @default(0)
+  transportKobo     Int @default(0)
+
+  /// Which tier the customer picked, where the provider offers any. Null is
+  /// the ordinary case: most jobs are quoted, not bought off a menu.
+  packageId String?
 
   /// When the customer wants them. Null means as soon as possible.
   scheduledFor DateTime?
@@ -725,8 +872,10 @@ model ServiceDetail {
 
   order    Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
   provider ServiceProvider @relation(fields: [providerId], references: [id])
+  package  ServicePackage? @relation(fields: [packageId], references: [id], onDelete: SetNull)
 
   @@index([providerId])
+  @@index([packageId])
   @@map("service_details")
 }
 
@@ -979,6 +1128,13 @@ model ProviderApplication {
   /// False where the kit will not fit on a bike. Asked at application time
   /// because it decides which arrival options a customer is ever offered.
   canTravelByBike Boolean @default(true)
+
+  /// The tiers they say they offer, as submitted. Held as JSON on the
+  /// application rather than as ServicePackage rows because an application is
+  /// a claim, not a listing - rows are created when ops approve it, and a
+  /// rejected application must not leave bookable packages behind.
+  packages Json?
+
   /// Why it was rejected, or an internal remark.
   note     String?
   status   VendorApplicationStatus @default(PENDING)

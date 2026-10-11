@@ -1152,6 +1152,74 @@ export function useProviderJobs() {
   });
 }
 
+/* ── Service provider: getting paid ───────────────────────────────────── */
+
+export function useProviderMe() {
+  const { token, actor } = useApp();
+  return useQuery({
+    queryKey: ['provider-me'],
+    queryFn: () => providerApi.me(token!),
+    enabled: Boolean(token) && actor === 'provider',
+  });
+}
+
+export function useProviderEarnings() {
+  const { token, actor } = useApp();
+  return useQuery({
+    queryKey: ['provider-earnings'],
+    queryFn: () => providerApi.earnings(token!),
+    enabled: Boolean(token) && actor === 'provider',
+  });
+}
+
+export function useProviderPayouts() {
+  const { token, actor } = useApp();
+  return useQuery({
+    queryKey: ['provider-payouts'],
+    queryFn: () => providerApi.payouts(token!),
+    enabled: Boolean(token) && actor === 'provider',
+  });
+}
+
+export function useProviderBanks() {
+  const { token, actor } = useApp();
+  return useQuery({
+    queryKey: ['provider-banks'],
+    queryFn: () => providerApi.banks(token!),
+    enabled: Boolean(token) && actor === 'provider',
+    // The bank list is a couple of hundred rows that change roughly never.
+    staleTime: 24 * 60 * 60 * 1000,
+  });
+}
+
+/** Asks the bank who owns an account. Stores nothing. */
+export function useProviderResolveAccount() {
+  const { token } = useApp();
+  return useMutation({
+    mutationFn: (v: { bankCode: string; accountNumber: string }) =>
+      providerApi.resolveAccount(v.bankCode, v.accountNumber, token!),
+  });
+}
+
+export function useProviderSavePayoutAccount() {
+  const { token } = useApp();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { bankCode: string; accountNumber: string }) =>
+      providerApi.savePayoutAccount(v.bankCode, v.accountNumber, token!),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['provider-me'] }),
+  });
+}
+
+export function useProviderSetAvailability() {
+  const { token } = useApp();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (isAvailable: boolean) => providerApi.setAvailability(isAvailable, token!),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['provider-me'] }),
+  });
+}
+
 /** The provider names the price, once they can see the job. */
 export function useQuoteServiceJob(orderId: string) {
   const { token } = useApp();

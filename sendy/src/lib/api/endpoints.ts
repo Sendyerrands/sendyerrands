@@ -387,6 +387,17 @@ export type ProviderApplicationBody = {
   bio?: string;
   tags?: string[];
   canTravelByBike?: boolean;
+  /**
+   * The tiers they offer, if any. Omitted entirely by a provider who just does
+   * the job and quotes for it — which is the ordinary case, and why this is
+   * optional rather than three empty boxes everyone has to argue with.
+   */
+  packages?: {
+    tier: 'BASIC' | 'STANDARD' | 'VIP';
+    name?: string;
+    description: string;
+    priceKobo: number;
+  }[];
 };
 
 export type ApiProviderApplication = {
@@ -423,6 +434,56 @@ export const providerApi = {
       having done the work. */
   complete: (orderId: string, deliveryCode: string, token: string) =>
     api.post<ApiOrder>(`/services/jobs/${orderId}/complete`, { deliveryCode }, token),
+
+  /* ── getting paid ──────────────────────────────────────────────────────
+     Same shape as riderApi's, deliberately. Services used to have none of
+     this: the customer paid the provider bank-to-bank, so Sendy owed them
+     nothing and had nowhere to send it. Sendy now collects. */
+
+  me: (token: string) => api.get<ApiProviderMe>('/services/me', token),
+
+  setAvailability: (isAvailable: boolean, token: string) =>
+    api.patch<{ isAvailable: boolean }>('/services/me/availability', { isAvailable }, token),
+
+  earnings: (token: string) =>
+    api.get<{
+      jobsCompleted: number;
+      grossKobo: number;
+      feesKobo: number;
+      earnedKobo: number;
+      payableKobo: number;
+      recent: {
+        id: string;
+        grossKobo: number;
+        feesKobo: number;
+        netKobo: number;
+        isPaidOut: boolean;
+        paidOutAt: string | null;
+        voidedAt: string | null;
+        createdAt: string;
+        order: { reference: string } | null;
+      }[];
+    }>('/services/earnings', token),
+
+  banks: (token: string) => api.get<Bank[]>('/services/banks', token),
+
+  /** Asks the bank who owns an account, without storing anything. */
+  resolveAccount: (bankCode: string, accountNumber: string, token: string) =>
+    api.post<{ accountNumber: string; accountName: string }>(
+      '/services/payout-account/resolve',
+      { bankCode, accountNumber },
+      token
+    ),
+
+  savePayoutAccount: (bankCode: string, accountNumber: string, token: string) =>
+    api.put<{
+      bankCode: string | null;
+      bankAccountNo: string | null;
+      bankName: string | null;
+      bankAccountName: string | null;
+    }>('/services/payout-account', { bankCode, accountNumber }, token),
+
+  payouts: (token: string) => api.get<ApiPayout[]>('/services/payouts', token),
 };
 
 export const marketplaceApi = {
@@ -636,4 +697,38 @@ export type ApiVendorOrder = {
   customer: { firstName: string; lastName: string; phone: string } | null;
   address: { line1: string; city: string; landmark: string | null } | null;
   rider: { firstName: string; lastName: string; phone: string } | null;
+};
+
+/** A service package tier, as published to customers. */
+export type ApiServicePackage = {
+  id: string;
+  tier: 'BASIC' | 'STANDARD' | 'VIP';
+  name: string | null;
+  description: string;
+  priceKobo: number;
+};
+
+/** The provider's own record. Never carries the Paystack recipient code. */
+export type ApiProviderMe = {
+  id: string;
+  name: string;
+  slug: string;
+  category: string;
+  bio: string | null;
+  tags: string[];
+  area: string | null;
+  state: string;
+  phone: string | null;
+  email: string | null;
+  avatarUrl: string | null;
+  rating: number;
+  ratingCount: number;
+  isVerified: boolean;
+  isAvailable: boolean;
+  canTravelByBike: boolean;
+  bankCode: string | null;
+  bankName: string | null;
+  bankAccountNo: string | null;
+  bankAccountName: string | null;
+  packages: ApiServicePackage[];
 };

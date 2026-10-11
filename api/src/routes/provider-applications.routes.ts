@@ -34,6 +34,35 @@ const applicationSchema = z.object({
    * ever offered. A cleaner with a vacuum cannot ride.
    */
   canTravelByBike: z.boolean().default(true),
+  /**
+   * The tiers they offer, if they offer any.
+   *
+   * Optional on purpose, and the empty case is the ordinary one: plenty of
+   * providers just do the job and quote for it. Requiring three tiers would
+   * make every applicant invent two they do not sell in order to be listed.
+   *
+   * The applicant writes what is inside each tier. A barber's VIP and a
+   * cleaner's VIP have nothing in common, so the only thing fixed here is the
+   * rung — the contents are theirs.
+   */
+  packages: z
+    .array(
+      z.object({
+        tier: z.enum(['BASIC', 'STANDARD', 'VIP']),
+        name: z.string().trim().max(60).optional(),
+        description: z.string().trim().min(3).max(400),
+        priceKobo: z.number().int().min(0).max(100_000_000),
+      })
+    )
+    .max(3)
+    /* One row per rung. Two "VIP"s is a pricing bug, and the unique index
+       would refuse it at approval time — better to refuse it here, where the
+       applicant can still fix it. */
+    .refine(
+      (ps) => new Set(ps.map((x) => x.tier)).size === ps.length,
+      'Each package tier can only be offered once.'
+    )
+    .optional(),
 });
 
 /**
