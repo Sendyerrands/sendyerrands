@@ -92,7 +92,7 @@ export type Order = {
   id: string;
   reference: string;
   vendor: string;
-  type: 'Food' | 'Package' | 'Errand' | 'Marketplace';
+  type: 'Food' | 'Package' | 'Errand' | 'Marketplace' | 'Service';
   total: number;
   placedAt: string;
   status: 'active' | 'delivered' | 'cancelled';

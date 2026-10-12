@@ -7,6 +7,8 @@ import { deliveryCode, orderReference } from '@/lib/reference';
 import { asyncHandler, validate } from '@/middleware';
 import { requireAuth } from '@/middleware/auth';
 import { transitionOrder } from '@/services/orders';
+import { riderPayout } from '@/lib/money';
+import { notifyRider } from '@/services/notifications';
 import { listBanks, resolveAccount } from '@/services/paystack';
 import { computeServiceCharges, describeServiceCharges } from '@/services/service-pricing';
 
@@ -290,7 +292,7 @@ servicesRouter.post(
       _sum: { amountKobo: true },
     });
     if ((settled._sum.amountKobo ?? 0) < order.totalKobo) {
-      throw conflict('Pay the Sendy arrival fee first.');
+      throw conflict('Pay for the booking first.');
     }
 
     await prisma.serviceDetail.update({
@@ -791,5 +793,166 @@ servicesRouter.get(
       },
     });
     res.json({ data: payouts });
+  })
+);
+
+
+/* =========================================================================
+   Getting the provider to the job on a Sendy rider.
+   =========================================================================
+
+   A provider either makes their own way or takes one of ours. This is the
+   second: they pick from the pool of registered riders rather than being
+   assigned one, because they are the person who knows what they are carrying
+   and whether a bike can take it.
+
+   The ride is attached to the CUSTOMER'S existing service order rather than
+   modelled as an order of its own. A ServiceProvider is not a User and cannot
+   own an order, so giving them one would mean making Order.customerId nullable
+   - the first non-additive migration on a live table, to express something the
+   existing shape already holds: an order can carry both a provider and a
+   rider, and this is one job, not two.
+
+   The rider is paid out of the transport charge the customer already paid, via
+   the earnings machinery that already exists. Nothing new collects money.
+   ========================================================================= */
+
+/**
+ * GET /services/jobs/:id/riders — who could take this provider to the job.
+ *
+ * Filtered on what the job actually needs, not on everything available. A
+ * provider whose kit cannot go on a bike is shown cars and vans only: offering
+ * a motorbike they would have to refuse is the dead control this codebase
+ * keeps being bitten by, and the refusal would come after the customer is
+ * already waiting.
+ */
+servicesRouter.get(
+  '/jobs/:id/riders',
+  requireAuth('provider'),
+  asyncHandler(async (req, res) => {
+    const detail = await prisma.serviceDetail.findFirst({
+      where: { orderId: req.params.id!, providerId: req.auth!.id },
+      select: {
+        orderId: true,
+        transportKobo: true,
+        provider: { select: { canTravelByBike: true } },
+        order: { select: { status: true, riderId: true } },
+      },
+    });
+    if (!detail) throw notFound('Job');
+
+    /* Heavy kit cannot go on two wheels. FOOT and BICYCLE are excluded for
+       everyone here — this is a trip to a customer with equipment, not a
+       document drop. */
+    const heavy = !detail.provider.canTravelByBike;
+    const usable: ('MOTORBIKE' | 'TRICYCLE' | 'CAR' | 'VAN')[] = heavy
+      ? ['CAR', 'VAN']
+      : ['MOTORBIKE', 'TRICYCLE', 'CAR', 'VAN'];
+
+    const riders = await prisma.rider.findMany({
+      where: { status: 'APPROVED', isOnline: true, vehicleType: { in: usable } },
+      orderBy: [{ rating: 'desc' }, { completedJobs: 'desc' }],
+      take: 20,
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        vehicleType: true,
+        rating: true,
+        completedJobs: true,
+      },
+    });
+
+    res.json({
+      data: {
+        riders,
+        /* What the rider would earn on this job, shown up front: the provider
+           is choosing on the customer's behalf and should see that picking a
+           rider costs the customer nothing extra - it comes out of transport
+           they have already paid. */
+        riderEarnsKobo: riderPayout(detail.transportKobo),
+        alreadyAssigned: Boolean(detail.order.riderId),
+        requiresCar: heavy,
+      },
+    });
+  })
+);
+
+/**
+ * POST /services/jobs/:id/rider — the provider picks one.
+ *
+ * Idempotent-ish by refusal: a job that already has a rider is not silently
+ * reassigned. Two riders dispatched for one job is two people turning up and
+ * one of them unpaid.
+ */
+servicesRouter.post(
+  '/jobs/:id/rider',
+  requireAuth('provider'),
+  validate(z.object({ riderId: z.string().min(1).max(40) })),
+  asyncHandler(async (req, res) => {
+    const { riderId } = req.body as { riderId: string };
+
+    const detail = await prisma.serviceDetail.findFirst({
+      where: { orderId: req.params.id!, providerId: req.auth!.id },
+      select: {
+        orderId: true,
+        transportKobo: true,
+        address: true,
+        provider: { select: { name: true, canTravelByBike: true } },
+        order: { select: { reference: true, status: true, riderId: true } },
+      },
+    });
+    if (!detail) throw notFound('Job');
+    if (detail.order.riderId) throw conflict('This job already has a rider on the way.');
+
+    /* Only once the customer has paid. Before that the job may still be
+       declined, and dispatching a rider to a booking nobody has committed to
+       is a trip somebody has to pay for. */
+    if (!['MERCHANT_PAID', 'IN_TRANSIT'].includes(detail.order.status)) {
+      throw conflict('You can book a rider once the customer has paid.');
+    }
+
+    const rider = await prisma.rider.findFirst({
+      where: { id: riderId, status: 'APPROVED', isOnline: true },
+      select: { id: true, firstName: true, vehicleType: true },
+    });
+    if (!rider) throw badRequest('That rider is no longer available. Pick another.');
+
+    // The same vehicle rule the list applied, enforced rather than trusted:
+    // the list is a suggestion, this is the decision.
+    if (!detail.provider.canTravelByBike && !['CAR', 'VAN'].includes(rider.vehicleType ?? '')) {
+      throw badRequest(`${rider.firstName} is on a bike, and your kit needs a car.`);
+    }
+
+    /* One transaction: a rider assigned with no notification is a job nobody
+       is told about, and a notification with no assignment is a lie. */
+    const updated = await prisma.$transaction(async (tx) => {
+      const order = await tx.order.update({
+        where: { id: detail.orderId },
+        data: {
+          riderId: rider.id,
+          /*
+            What the rider is owed, from the transport the customer already
+            paid. Set HERE because the existing earnings machinery books a
+            rider's cut from riderPayoutKobo when the order is delivered -
+            leaving it at zero would dispatch someone who is never paid, which
+            is exactly how a rider ends up doing a job for nothing.
+          */
+          riderPayoutKobo: riderPayout(detail.transportKobo),
+        },
+        select: { id: true, reference: true, riderId: true, riderPayoutKobo: true },
+      });
+
+      await notifyRider(tx, {
+        riderId: rider.id,
+        title: 'A provider needs a lift',
+        body: `${detail.provider.name} needs taking to ${detail.address}.`,
+        orderId: detail.orderId,
+      });
+
+      return order;
+    });
+
+    res.json({ data: updated });
   })
 );

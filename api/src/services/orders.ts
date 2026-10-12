@@ -201,8 +201,12 @@ export function buildStepper(
   current: OrderStatus,
   type?: OrderType
 ) {
-  const hasVendor = type !== 'PACKAGE' && type !== 'ERRAND';
+  const isService = type === 'SERVICE';
   const isErrand = type === 'ERRAND';
+  /* A service has no vendor either — the provider IS the counterparty, and
+     they come to the customer. Leaving SERVICE out of this test is what put
+     "Vendor accepted" and "Picked up from vendor" on a barber's booking. */
+  const hasVendor = type !== 'PACKAGE' && type !== 'ERRAND' && !isService;
 
   /**
    * An errand never passes through PLACED — it is posted unpaid at
@@ -210,7 +214,15 @@ export function buildStepper(
    * through the shared flow put currentIndex at -1, so every step rendered
    * pending on an order that was visibly progressing.
    */
-  const flow: OrderStatus[] = isErrand
+  const flow: OrderStatus[] = isService
+    ? /*
+         Mirrors TRANSITIONS_BY_TYPE.SERVICE exactly. Nobody is dispatched and
+         nothing is collected: the provider is quoted for, paid, travels, and
+         finishes. Showing PICKED_UP here would be a step that can never
+         complete, which reads to a customer as a stalled booking.
+      */
+      ['QUOTE_REQUESTED', 'PRICE_PROPOSED', 'MERCHANT_PAID', 'IN_TRANSIT', 'DELIVERED']
+    : isErrand
     ? [
         'QUOTE_REQUESTED',
         'RIDER_ASSIGNED',
@@ -245,8 +257,22 @@ export function buildStepper(
     DELIVERED: 'Delivered',
   };
 
+  /**
+   * A service is booked, quoted, paid and done — the shared copy describes a
+   * delivery, which this is not. "Paid the seller" in particular is wrong:
+   * Sendy collects here and pays the provider afterwards.
+   */
+  const SERVICE_STEPS: Partial<Record<OrderStatus, string>> = {
+    QUOTE_REQUESTED: 'Booking sent',
+    PRICE_PROPOSED: 'Price received',
+    MERCHANT_PAID: 'Paid',
+    IN_TRANSIT: 'On the way to you',
+    DELIVERED: 'Job done',
+  };
+
   // Pickup copy depends on where the rider actually collects from.
   const label = (status: OrderStatus) => {
+    if (isService) return SERVICE_STEPS[status] ?? LABELS[status];
     if (isErrand) return ERRAND_STEPS[status] ?? LABELS[status];
     return status === 'PICKED_UP' && !hasVendor ? 'Picked up from sender' : LABELS[status];
   };

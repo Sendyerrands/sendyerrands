@@ -104,7 +104,7 @@ export type ApiProduct = {
 export type ApiOrder = {
   id: string;
   reference: string;
-  type: 'FOOD' | 'MARKETPLACE' | 'ERRAND' | 'PACKAGE';
+  type: 'FOOD' | 'MARKETPLACE' | 'ERRAND' | 'PACKAGE' | 'SERVICE';
   status: string;
   totalKobo: number;
   subtotalKobo: number;
@@ -159,7 +159,7 @@ export type ApiRiderJob = {
   status: string;
   /** Non-null on the detail endpoint only when this rider already holds it. */
   riderId?: string | null;
-  type: 'FOOD' | 'MARKETPLACE' | 'ERRAND' | 'PACKAGE';
+  type: 'FOOD' | 'MARKETPLACE' | 'ERRAND' | 'PACKAGE' | 'SERVICE';
   riderPayoutKobo: number;
   vendor?: { name: string; area: string | null } | null;
   address?: { line1: string; city: string; landmark: string | null } | null;
@@ -257,6 +257,20 @@ export function toProduct(p: ApiProduct): Product {
  */
 const CANCELLED_STATUSES = ['CANCELLED', 'REFUNDED'];
 
+/**
+ * Status copy for a SERVICE, which means something different at every shared
+ * status. "Paid the seller" is an errand's phrasing — on a service the money
+ * goes to Sendy, and the thing the customer wants to know next is whether the
+ * provider is coming.
+ */
+const SERVICE_STATUS_COPY: Record<string, string> = {
+  QUOTE_REQUESTED: 'Waiting for a price',
+  PRICE_PROPOSED: 'Price received — your approval needed',
+  MERCHANT_PAID: 'Paid — waiting for them to set off',
+  IN_TRANSIT: 'On the way to you',
+  DELIVERED: 'Job done',
+};
+
 const STATUS_COPY: Record<string, string> = {
   QUOTE_REQUESTED: 'Waiting for a rider',
   PRICE_PROPOSED: 'Price confirmed — your approval needed',
@@ -278,6 +292,9 @@ const TYPE_LABEL: Record<ApiOrder['type'], Order['type']> = {
   MARKETPLACE: 'Marketplace',
   ERRAND: 'Errand',
   PACKAGE: 'Package',
+  /* Missing until now, so every service order came through this map as
+     undefined and rendered with no type at all. */
+  SERVICE: 'Service',
 };
 
 /** A human title for the order row — vendors don't exist on parcels/errands. */
@@ -310,7 +327,13 @@ export function toOrder(o: ApiOrder): Order {
         : 'active',
     // Falling back to the raw enum put "QUOTE_REQUESTED" on screen, three times.
     // Title case at least reads as English while a label is missing.
-    statusLabel: STATUS_COPY[o.status] ?? humanise(o.status),
+    /* A service's wording first where it has its own, falling back to the
+       shared copy. Without this a paid booking read "Paid the seller" — an
+       errand's sentence, about money that went to Sendy. */
+    statusLabel:
+      (o.type === 'SERVICE' ? SERVICE_STATUS_COPY[o.status] : undefined) ??
+      STATUS_COPY[o.status] ??
+      humanise(o.status),
     itemCount: o.items?.reduce((n, i) => n + i.quantity, 0) ?? 1,
     thumb: thumbFrom(title, o.vendor?.coverUrl, [o.type]),
   };

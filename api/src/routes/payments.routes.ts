@@ -67,9 +67,32 @@ paymentsRouter.post(
      */
     const payable =
       order.status === 'PENDING_PAYMENT' ||
-      (order.type === 'ERRAND' && order.status === 'PRICE_PROPOSED');
+      /*
+        Services pay at the same moment errands do, and for the same reason:
+        neither has a total until somebody has looked at the job. A service was
+        missing from this list entirely, so a customer with a ₦23,500 bill and
+        no payments against it was told the order had already been paid for -
+        wrong about the state, and wrong about the reason.
+      */
+      (['ERRAND', 'SERVICE'].includes(order.type) && order.status === 'PRICE_PROPOSED');
 
-    if (!payable) throw conflict('This order has already been paid for.');
+    if (!payable) {
+      /*
+        Say which it is. "Already paid for" was asserted for every unpayable
+        status, including a cancelled order and a service that simply had not
+        been quoted yet, which sends the customer looking for a payment that
+        does not exist.
+      */
+      const settled = await prisma.payment.aggregate({
+        where: { orderId: order.id, status: 'SUCCESS' },
+        _sum: { amountKobo: true },
+      });
+      throw conflict(
+        (settled._sum.amountKobo ?? 0) >= order.totalKobo
+          ? 'This order has already been paid for.'
+          : 'This order cannot be paid for at the moment.'
+      );
+    }
 
     if (method === 'WALLET') {
       const result = await prisma.$transaction(async (tx) => {
@@ -105,10 +128,23 @@ paymentsRouter.post(
           },
         });
 
-        // An errand keeps its place in its own lane: paying the dispatch fee
-        // does not mean the seller has been paid, which is what MERCHANT_PAID
-        // records. Moving it to PLACED here would skip that entirely.
-        if (order.type !== 'ERRAND') {
+        /*
+          Where a paid order goes next depends on which lane it is in.
+
+          A SERVICE goes to MERCHANT_PAID: the wallet always pays the full
+          total, and for a service that total IS the whole bill, so paying is
+          the approval and the provider is released. PLACED is not even a legal
+          move from PRICE_PROPOSED for a service — transitionOrder would have
+          thrown and rolled the whole transaction back, debiting nothing and
+          failing with no useful reason.
+
+          An errand keeps its place in its own lane: paying the dispatch fee
+          does not mean the seller has been paid, which is what MERCHANT_PAID
+          records there. Moving it to PLACED would skip that entirely.
+        */
+        if (order.type === 'SERVICE') {
+          await transitionOrder(order.id, 'MERCHANT_PAID', { type: 'customer', id: customerId }, { tx });
+        } else if (order.type !== 'ERRAND') {
           await transitionOrder(order.id, 'PLACED', { type: 'customer', id: customerId }, { tx });
         }
 
@@ -409,6 +445,29 @@ async function settlePayment(reference: string, success: boolean, payload: unkno
 
     if (success && payment.order.status === 'PENDING_PAYMENT') {
       await transitionOrder(payment.orderId, 'PLACED', { type: 'system' }, { tx });
+    }
+
+    /**
+     * A paid service booking releases the provider, with no second tap.
+     *
+     * Sendy collects the whole amount for a service, so paying IS the
+     * approval — there is nothing left for the customer to agree to. Without
+     * this the order stayed at PRICE_PROPOSED after the money arrived and the
+     * screen kept saying "your approval needed" about a bill already settled,
+     * while the pay button answered "this order has already been paid for".
+     * Both were telling the truth about the status; the status was wrong.
+     *
+     * Gated on the FULL amount, not merely a successful payment: a part
+     * payment must not send someone to a customer's house.
+     */
+    if (success && payment.order.type === 'SERVICE' && payment.order.status === 'PRICE_PROPOSED') {
+      const settled = await tx.payment.aggregate({
+        where: { orderId: payment.orderId, status: 'SUCCESS' },
+        _sum: { amountKobo: true },
+      });
+      if ((settled._sum.amountKobo ?? 0) >= payment.order.totalKobo) {
+        await transitionOrder(payment.orderId, 'MERCHANT_PAID', { type: 'system' }, { tx });
+      }
     }
   });
 }

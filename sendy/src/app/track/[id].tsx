@@ -60,17 +60,28 @@ export default function TrackOrder() {
    * person.
    */
   const errand = data?.raw.errandDetail ?? null;
-  /* Services run the same negotiation as errands, with the provider in the
-     rider's place and an arrival fee in place of a dispatch fee. */
+  /* Services run the same negotiation as errands, except Sendy collects the
+     whole amount here and pays the provider out, rather than the customer
+     paying them directly. */
   const service = (data?.raw as { serviceDetail?: {
     quotedKobo?: number | null;
     arrivalFeeKobo?: number;
     arrivalMode?: 'BIKE' | 'CAR';
+    /* The three charges, snapshotted when the provider quoted. Optional
+       because bookings taken before the fee model shipped do not carry them. */
+    serviceFeeKobo?: number;
+    serviceChargeKobo?: number;
+    transportKobo?: number;
     provider?: { name?: string } | null;
   } | null })?.serviceDetail ?? null;
   const awaitingQuote = status === 'QUOTE_REQUESTED';
   const quoted = status === 'PRICE_PROPOSED';
   const feePaid = (data?.raw.payments ?? []).some((p) => p.status === 'SUCCESS');
+  /* Summed from the payments themselves: the order carries no paid total, and
+     a service bill is now settled in one go rather than by a flag. */
+  const paidKobo = (data?.raw.payments ?? [])
+    .filter((p) => p.status === 'SUCCESS')
+    .reduce((sum, p) => sum + (p.amountKobo ?? 0), 0);
 
   /** The rider has the goods and is coming — the code becomes useful here. */
   const handingOver = ['PICKED_UP', 'IN_TRANSIT', 'AT_DOORSTEP'].includes(status);
@@ -284,9 +295,13 @@ export default function TrackOrder() {
               orderId={id}
               providerName={service.provider?.name ?? 'Your provider'}
               quotedKobo={service.quotedKobo}
-              arrivalKobo={service.arrivalFeeKobo ?? 0}
-              arrivalMode={service.arrivalMode ?? 'CAR'}
-              feePaid={feePaid}
+              serviceFeeKobo={service.serviceFeeKobo ?? 0}
+              serviceChargeKobo={service.serviceChargeKobo ?? 0}
+              transportKobo={service.transportKobo ?? 0}
+              /* The order's own total and what is left on it — not the
+                 arrival fee, which is zero now and made the pay step vanish. */
+              totalKobo={data?.raw.totalKobo ?? 0}
+              amountDueKobo={Math.max(0, (data?.raw.totalKobo ?? 0) - paidKobo)}
             />
           ) : null}
 
