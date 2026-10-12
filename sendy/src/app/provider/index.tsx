@@ -20,6 +20,7 @@ import {
 import { naira } from '@/lib/format';
 import { koboToNaira } from '@/lib/api/mappers';
 import { colors } from '@/lib/theme';
+import { signOutAndLeave } from '@/lib/sign-out';
 import { useApp } from '@/store/app';
 
 /**
@@ -80,10 +81,7 @@ export default function ProviderHome() {
               in as a provider" panel — the session really was gone, but it
               looked like the button had only redecorated the page.
             */
-            onPress={async () => {
-              await signOut();
-              router.replace('/signin');
-            }}
+            onPress={() => void signOutAndLeave(router, signOut)}
           />
         }
       />
@@ -164,6 +162,17 @@ function JobCard({ job }: { job: ApiProviderJob }) {
   const [price, setPrice] = useState('');
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
+  /*
+    What the last sent price was, so the screen can say it landed.
+
+    Sending a price succeeded and looked like nothing: the status was already
+    PRICE_PROPOSED and stayed there, the copy above the form was identical
+    before and after, and the typed figure stayed in the box. The only thing
+    that moved was a number inside a sentence, and only after the list
+    refetched. A provider tapping "Send new price" twice because the first tap
+    appeared to do nothing is the obvious next bug.
+  */
+  const [sentKobo, setSentKobo] = useState<number | null>(null);
 
   const quote = useQuoteServiceJob(job.orderId);
   const enRoute = useProviderEnRoute(job.orderId);
@@ -226,7 +235,8 @@ function JobCard({ job }: { job: ApiProviderJob }) {
             </Text>
           ) : (
             <Text className="text-body text-[13px] mb-3 leading-[19px]">
-              Only you can price this. They pay you directly; Sendy takes the arrival fee only.
+              Only you can price this. Quote what the work is worth — Sendy adds its charges on
+              top of your price, so you are paid the figure you put in.
             </Text>
           )}
           <Input
@@ -246,12 +256,30 @@ function JobCard({ job }: { job: ApiProviderJob }) {
             disabled={!priceNaira || quote.isPending}
             onPress={() => {
               setError(null);
-              quote.mutate(priceNaira * 100, {
+              setSentKobo(null);
+              const kobo = priceNaira * 100;
+              quote.mutate(kobo, {
+                onSuccess: () => {
+                  // Cleared, so a second tap cannot resend a figure that is
+                  // already with the customer.
+                  setPrice('');
+                  setSentKobo(kobo);
+                },
                 onError: (e) =>
                   setError(e instanceof ApiError ? e.message : 'Could not send that price.'),
               });
             }}
           />
+
+          {sentKobo !== null ? (
+            <View className="flex-row items-start mt-3">
+              <Ionicons name="checkmark-circle" size={16} color={colors.success} />
+              <Text className="text-body text-[12.5px] ml-2 flex-1 leading-[17px]">
+                Sent {naira(koboToNaira(sentKobo))}. They will see it on their booking and can
+                accept or decline. Don&apos;t set off until they pay.
+              </Text>
+            </View>
+          ) : null}
         </>
       ) : paid ? (
         <>

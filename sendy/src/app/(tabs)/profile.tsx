@@ -13,6 +13,7 @@ import { naira } from '@/lib/format';
 import { legal, links } from '@/lib/links';
 import { openInApp } from '@/lib/open-in-app';
 import { colors } from '@/lib/theme';
+import { signOutAndLeave } from '@/lib/sign-out';
 import { useApp } from '@/store/app';
 
 /**
@@ -278,7 +279,7 @@ export default function Profile() {
             yet committed the cleared token, putting you back in the app. That
             is the "log out twice" glitch.
           */}
-          <ListRow icon="log-out-outline" label="Log out" danger last onPress={async () => { await signOut(); router.replace('/onboarding'); }} />
+          <ListRow icon="log-out-outline" label="Log out" danger last onPress={() => void signOutAndLeave(router, signOut)} />
         </Card>
 
         {/* Legal has to be reachable from inside the app, not only from the

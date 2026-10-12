@@ -3,7 +3,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 
-import { Card } from '@/components/ui/atoms';
+import { Card, EmptyState } from '@/components/ui/atoms';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Screen, ScreenHeader, StickyBar } from '@/components/ui/Screen';
@@ -28,7 +28,7 @@ import { useApp } from '@/store/app';
 export default function ServiceBooking() {
   const router = useRouter();
   const { slug } = useLocalSearchParams<{ slug: string }>();
-  const { activeAddress } = useApp();
+  const { activeAddress, ready, signedIn, actor } = useApp();
 
   const { data: provider, isLoading } = useServiceProvider(slug);
   const book = useBookService();
@@ -58,6 +58,40 @@ export default function ServiceBooking() {
     if (provider && mode === null) setMode(provider.canTravelByBike ? 'BIKE' : 'CAR');
   }, [provider, mode]);
 
+  /*
+    Booking is a customer action, and only a customer token can do it.
+
+    Without this the screen rendered in full for a signed-in provider or rider,
+    took the whole form, and failed on submit with "This endpoint is not
+    available for your account type" — a sentence that tells someone nothing
+    about what to do next, after they had typed everything. The same gate the
+    rider, vendor and provider areas already use, pointed the other way.
+  */
+  if (ready && actor !== 'customer') {
+    return (
+      <Screen>
+        <ScreenHeader onBack={() => router.back()} title="Book a service" />
+        <View className="flex-1 justify-center px-4">
+          <EmptyState
+            icon="person-circle-outline"
+            title="Sign in as a customer"
+            body={
+              signedIn
+                ? `You're signed in as a ${actor}. Booking a service is something customers do — sign in with your customer account to carry on.`
+                : 'Sign in with your customer account to book a service.'
+            }
+          >
+            <Button
+              title="Sign in"
+              fullWidth={false}
+              onPress={() => router.replace({ pathname: '/signin', params: { role: 'customer' } })}
+            />
+          </EmptyState>
+        </View>
+      </Screen>
+    );
+  }
+
   if (isLoading || !provider) {
     return (
       <Screen>
@@ -67,7 +101,13 @@ export default function ServiceBooking() {
     );
   }
 
-  const feeKobo = mode === 'BIKE' ? provider.bikeFeeKobo : provider.carFeeKobo;
+  /*
+    Nothing is charged here any more.
+
+    The flat bike/car arrival fee is gone — transport is 5% of the provider's
+    quote, and there is no quote yet. So this screen takes a request and shows
+    what the charges WILL be, rather than naming a number to pay now.
+  */
   const valid = task.trim().length >= 3 && address.trim().length >= 3 && mode !== null;
 
   const submit = () => {
@@ -163,15 +203,14 @@ export default function ServiceBooking() {
         {/* how they travel */}
         <Text className="text-ink text-[15px] font-semibold mt-5 mb-1">How should they arrive?</Text>
         <Text className="text-muted text-[12.5px] mb-3">
-          This is Sendy&apos;s fee, and the only thing we charge for.
+          Still worth telling us — it decides what they can bring with them.
         </Text>
 
         {provider.canTravelByBike ? (
           <ArrivalOption
             icon="bicycle-outline"
             title="By bike"
-            body="Cheaper and usually quicker through traffic."
-            feeKobo={provider.bikeFeeKobo}
+            body="Usually quicker through traffic."
             selected={mode === 'BIKE'}
             onPress={() => setMode('BIKE')}
           />
@@ -189,20 +228,36 @@ export default function ServiceBooking() {
         <ArrivalOption
           icon="car-outline"
           title="By car"
-          body="Costs more. Needed for tools, equipment, or heavy rain."
-          feeKobo={provider.carFeeKobo}
+          body="Needed for tools, equipment, or heavy rain."
           selected={mode === 'CAR'}
           onPress={() => setMode('CAR')}
         />
 
-        {/* the thing people most need to understand before they tap */}
-        <View className="flex-row items-start bg-pink-50 rounded-md p-3.5 mt-4">
-          <Ionicons name="pricetag-outline" size={16} color={colors.pink[600]} />
-          <Text className="text-body text-[12.5px] ml-2.5 flex-1 leading-[18px]">
-            You only pay the arrival fee now. {provider.name} will send you a price for the work
-            itself once they know what it involves — you can accept it or decline, and nothing
-            starts until you do.
+        {/*
+          The thing people most need to understand before they tap.
+
+          Spelled out rather than summarised as "fees apply": these are
+          percentages, so a customer cannot work out what they will pay from a
+          label, and finding out after the quote arrives is how a booking turns
+          into a complaint.
+        */}
+        <View className="bg-pink-50 rounded-md p-3.5 mt-4">
+          <View className="flex-row items-start">
+            <Ionicons name="pricetag-outline" size={16} color={colors.pink[600]} />
+            <Text className="text-body text-[12.5px] ml-2.5 flex-1 leading-[18px]">
+              Nothing to pay yet. {provider.name} sends you a price once they know what the job
+              involves — you accept it or decline, and nothing starts until you do.
+            </Text>
+          </View>
+
+          <View className="h-px bg-pink-600/15 my-2.5" />
+
+          <Text className="text-muted text-[11.5px] mb-1.5 font-semibold tracking-wide">
+            WHAT SENDY ADDS TO THEIR PRICE
           </Text>
+          <FeeLine label="Service fee" value="₦500" />
+          <FeeLine label="Service charge" value="10%" />
+          <FeeLine label="Transport" value="5%" />
         </View>
 
         {error ? <Text className="text-error text-[13px] mt-3">{error}</Text> : null}
@@ -210,7 +265,7 @@ export default function ServiceBooking() {
 
       <StickyBar>
         <Button
-          title={book.isPending ? 'Booking…' : `Book — ${naira(feeKobo / 100)} arrival`}
+          title={book.isPending ? 'Sending…' : 'Ask for a price'}
           loading={book.isPending}
           disabled={!valid || book.isPending}
           onPress={submit}
@@ -224,14 +279,12 @@ function ArrivalOption({
   icon,
   title,
   body,
-  feeKobo,
   selected,
   onPress,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
   title: string;
   body: string;
-  feeKobo: number;
   selected: boolean;
   onPress: () => void;
 }) {
@@ -240,7 +293,7 @@ function ArrivalOption({
       onPress={onPress}
       accessibilityRole="radio"
       accessibilityState={{ selected }}
-      accessibilityLabel={`${title}, ${naira(feeKobo / 100)}`}
+      accessibilityLabel={title}
       className={`flex-row items-center rounded-md p-3.5 mb-2.5 border ${
         selected ? 'border-pink-600 bg-pink-50' : 'border-hairline bg-white'
       }`}
@@ -250,9 +303,19 @@ function ArrivalOption({
         <Text className="text-ink text-[15px] font-semibold">{title}</Text>
         <Text className="text-muted text-[12.5px] mt-0.5 leading-[17px]">{body}</Text>
       </View>
-      <Text className={`text-[15px] font-bold ml-2 ${selected ? 'text-pink-600' : 'text-ink'}`}>
-        {naira(feeKobo / 100)}
-      </Text>
+      {/* A tick, not a price. Which vehicle no longer changes what it costs —
+          it changes what they can carry. */}
+      {selected ? <Ionicons name="checkmark-circle" size={19} color={colors.pink[600]} /> : null}
     </Pressable>
+  );
+}
+
+/** One line of the charge breakdown. */
+function FeeLine({ label, value }: { label: string; value: string }) {
+  return (
+    <View className="flex-row items-center justify-between py-0.5">
+      <Text className="text-body text-[12.5px]">{label}</Text>
+      <Text className="text-ink text-[12.5px] font-semibold">{value}</Text>
+    </View>
   );
 }

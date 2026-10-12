@@ -8,6 +8,7 @@ import { useVendorMe } from '@/lib/api/hooks';
 import { naira } from '@/lib/format';
 import { koboToNaira } from '@/lib/api/mappers';
 import { colors } from '@/lib/theme';
+import { signOutAndLeave } from '@/lib/sign-out';
 import { useApp } from '@/store/app';
 
 /** Vendor profile — verification, shop details, sign out. */
@@ -95,10 +96,10 @@ export default function VendorMe() {
           <ListRow
             icon="swap-horizontal-outline"
             label="Switch to customer app"
-            onPress={async () => {
-              await signOut();
-              router.replace('/signin');
-            }}
+            /* Same route out as logging out: this clears the session too, and
+               clearing it while still inside the rider/vendor tree is what put
+               an "sign in as a rider" empty state on screen on the way past. */
+            onPress={() => void signOutAndLeave(router, signOut)}
           />
           <ListRow
             icon="log-out-outline"
@@ -106,9 +107,7 @@ export default function VendorMe() {
             danger
             last
             onPress={async () => {
-              await signOut();
-              // '/signin', not the splash — see profile.tsx.
-              router.replace('/signin');
+              await signOutAndLeave(router, signOut);
             }}
           />
         </Card>

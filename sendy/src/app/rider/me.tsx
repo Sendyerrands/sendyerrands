@@ -6,6 +6,7 @@ import { Badge, Card, ListRow, Verified } from '@/components/ui/atoms';
 import { Screen } from '@/components/ui/Screen';
 import { useRiderMe } from '@/lib/api/hooks';
 import { colors } from '@/lib/theme';
+import { signOutAndLeave } from '@/lib/sign-out';
 import { useApp } from '@/store/app';
 
 /** What each vehicle is called here — a tricycle is a keke to everyone who rides one. */
@@ -168,10 +169,10 @@ export default function RiderMe() {
           <ListRow
             icon="swap-horizontal-outline"
             label="Switch to customer app"
-            onPress={async () => {
-              await signOut();
-              router.replace('/signin');
-            }}
+            /* Same route out as logging out: this clears the session too, and
+               clearing it while still inside the rider/vendor tree is what put
+               an "sign in as a rider" empty state on screen on the way past. */
+            onPress={() => void signOutAndLeave(router, signOut)}
           />
           {/*
             This only navigated to the splash and never cleared the session, so
@@ -185,13 +186,7 @@ export default function RiderMe() {
             label="Log out"
             danger
             last
-            onPress={async () => {
-              await signOut();
-              // '/signin', not '/' — the splash holds 2.8s and then routes by
-              // `signedIn`, so logging out replayed the startup animation and a
-              // tap during it could land back in the rider app.
-              router.replace('/signin');
-            }}
+            onPress={() => void signOutAndLeave(router, signOut)}
           />
         </Card>
 
