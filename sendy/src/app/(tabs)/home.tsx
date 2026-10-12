@@ -88,12 +88,6 @@ export default function Home() {
           <CategoryGrid />
         </View>
 
-        {/* A paid placement, above Sendy Rides and clearly marked as one.
-            Kept out of PromoCarousel on purpose: that carousel rotates Sendy's
-            own offers, and mixing someone else's advertising into it would
-            make the label the only thing separating an ad from a product. */}
-        <CheersAd />
-
         {/* Under the pillars, not in the carousel: this is an announcement, so
             it holds still rather than rotating away. */}
         <View className="mt-5">
@@ -162,6 +156,16 @@ export default function Home() {
             vendors.map((v) => <VendorCard key={v.id} vendor={v} onPress={() => openVendor(v.id)} />)
           )}
         </View>
+
+        {/* A paid placement, last on the screen and clearly marked as one.
+
+            Below everything Sendy sells, deliberately: an advertiser above the
+            pillar grid competes with the product for the first screenful.
+            Kept out of PromoCarousel for the same reason it is kept out of the
+            grid — that carousel rotates Sendy's own offers, and mixing someone
+            else's advertising into it would leave the label as the only thing
+            separating an ad from a product. */}
+        <CheersAd />
       </ScrollView>
     </Screen>
   );
