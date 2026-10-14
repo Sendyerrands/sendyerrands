@@ -10,6 +10,7 @@ import { Orders } from '@/pages/Orders';
 import { Requests } from '@/pages/Requests';
 import { Riders } from '@/pages/Riders';
 import { Applications } from '@/pages/Applications';
+import { ProviderApplications } from '@/pages/ProviderApplications';
 import { Customers } from '@/pages/Customers';
 import { PasswordReset } from '@/pages/PasswordReset';
 import { Payments } from '@/pages/Payments';
@@ -65,6 +66,7 @@ function Shell() {
         <Route path="/requests" element={<Requests />} />
         <Route path="/vendors" element={<Vendors />} />
         <Route path="/applications" element={<Applications />} />
+        <Route path="/provider-applications" element={<ProviderApplications />} />
         <Route path="/payouts" element={<Payouts />} />
         <Route path="/password-reset" element={<PasswordReset />} />
         <Route path="*" element={<Navigate to="/" replace />} />

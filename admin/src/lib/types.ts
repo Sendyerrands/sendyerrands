@@ -376,6 +376,34 @@ export type VendorApplication = {
   vendor: { id: string; name: string; slug: string } | null;
 };
 
+/**
+ * Someone asking to offer a service — a barber, cleaner, plumber.
+ *
+ * Shares VendorApplicationStatus rather than declaring a second identical
+ * enum, exactly as the API does: the three states are the same three states.
+ */
+export type ProviderApplication = {
+  id: string;
+  name: string;
+  category: string;
+  area: string;
+  state: string;
+  phone: string;
+  email: string | null;
+  bio: string | null;
+  tags: string[];
+  /** Decides which arrival options a customer is ever offered. */
+  canTravelByBike: boolean;
+  /** The tiers they say they offer, as submitted. Null when they quote per job. */
+  packages: { tier: string; name?: string | null; description: string; priceKobo: number }[] | null;
+  note: string | null;
+  status: VendorApplicationStatus;
+  createdAt: string;
+  reviewedAt: string | null;
+  applicant: { id: string; firstName: string; lastName: string; phone: string; email: string } | null;
+  provider: { id: string; name: string; slug: string } | null;
+};
+
 export type PayoutStatus = 'PENDING' | 'PROCESSING' | 'SUCCESS' | 'FAILED' | 'REVERSED';
 
 export type Payout = {

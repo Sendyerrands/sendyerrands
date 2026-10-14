@@ -20,6 +20,7 @@ import type {
   RiderStatus,
   Service,
   Vendor,
+  ProviderApplication,
   VendorApplication,
   VendorApplicationStatus,
   VendorCatalogue,
@@ -216,6 +217,38 @@ export function useDeleteVendor() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['vendors'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+  });
+}
+
+// ── provider applications ───────────────────────────────────
+//
+// Separate queue from vendors, and separate on purpose: approving one creates
+// a ServiceProvider, approving the other creates a Vendor, and ops needs to
+// see which they are deciding.
+
+export function useProviderApplications(status?: VendorApplicationStatus) {
+  return useQuery({
+    queryKey: ['provider-applications', status ?? 'all'],
+    queryFn: () =>
+      api<ProviderApplication[]>(
+        `/admin/provider-applications${status ? `?status=${status}` : ''}`
+      ),
+  });
+}
+
+export function useDecideProviderApplication() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; decision: 'APPROVE' | 'REJECT'; note?: string }) =>
+      api<ProviderApplication>(`/admin/provider-applications/${v.id}/decide`, {
+        method: 'POST',
+        body: JSON.stringify({ decision: v.decision, note: v.note }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['provider-applications'] });
+      // Approving mints a provider, so the providers list is stale too.
+      qc.invalidateQueries({ queryKey: ['service-providers'] });
     },
   });
 }
