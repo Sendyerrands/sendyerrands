@@ -22,7 +22,9 @@ export type AuthEvent =
   | 'verify.failed-kept-session'
   | 'signin.ok'
   | 'signin.persist-failed'
-  | 'signout.manual';
+  | 'signout.manual'
+  /** Ops suspended or deleted the account mid-session; the detail is the code. */
+  | 'blocked.signed-out';
 
 type Entry = { at: number; event: AuthEvent; detail?: string };
 

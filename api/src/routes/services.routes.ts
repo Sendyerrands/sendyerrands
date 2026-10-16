@@ -57,6 +57,10 @@ servicesRouter.get(
     const providers = await prisma.serviceProvider.findMany({
       where: {
         isAvailable: true,
+        /* A suspended account is not shown to customers. `suspendedAt` is
+           the only thing a suspension writes, so this filter is what makes it
+           visible here - see src/lib/suspension.ts. */
+        suspendedAt: null,
         ...(category ? { category: { equals: category, mode: 'insensitive' } } : {}),
         ...(state ? { state } : {}),
         ...(q
@@ -89,7 +93,9 @@ servicesRouter.get(
   '/categories',
   asyncHandler(async (_req, res) => {
     const rows = await prisma.serviceProvider.findMany({
-      where: { isAvailable: true },
+      // Suspended providers excluded, or the chips offer a category whose
+      // grid is empty - the same reason isAvailable is filtered here.
+      where: { isAvailable: true, suspendedAt: null },
       select: { category: true },
       distinct: ['category'],
       orderBy: { category: 'asc' },
@@ -162,7 +168,10 @@ servicesRouter.post(
     const provider = await prisma.serviceProvider.findUnique({
       where: { slug: body.providerSlug },
     });
-    if (!provider) throw notFound('Provider');
+    // A suspended provider is not merely busy, so this reads as not found
+    // rather than "try later" - and it comes first, because a suspended
+    // provider who left isAvailable on would otherwise take the booking.
+    if (!provider || provider.suspendedAt) throw notFound('Provider');
     if (!provider.isAvailable) throw conflict('That provider is not taking bookings right now.');
 
     /**
@@ -850,7 +859,9 @@ servicesRouter.get(
       : ['MOTORBIKE', 'TRICYCLE', 'CAR', 'VAN'];
 
     const riders = await prisma.rider.findMany({
-      where: { status: 'APPROVED', isOnline: true, vehicleType: { in: usable } },
+      // A suspended rider cannot sign in, so offering them here would be
+      // offering a rider who can never accept.
+      where: { status: 'APPROVED', isOnline: true, suspendedAt: null, vehicleType: { in: usable } },
       orderBy: [{ rating: 'desc' }, { completedJobs: 'desc' }],
       take: 20,
       select: {

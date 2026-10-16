@@ -1,10 +1,10 @@
 import { Fragment, useState } from 'react';
 
+import { AccountActions, SuspendedPill } from '@/components/AccountActions';
 import { PageHeader } from '@/components/Layout';
 import { Button, Card, EmptyState, ErrorState, Loading, Modal, Pill } from '@/components/ui';
 import {
   useDeleteProduct,
-  useDeleteVendor,
   useUpdateVendor,
   useVendorProducts,
   useVendors,
@@ -12,36 +12,30 @@ import {
 import { naira } from '@/lib/format';
 import type { AdminProduct, Vendor } from '@/lib/types';
 
-/** What a confirmation modal is currently asking about. */
-type Pending =
-  | { kind: 'product'; product: AdminProduct; vendorName: string }
-  | { kind: 'vendor'; vendor: Vendor }
-  | null;
+/**
+ * What the confirmation modal is asking about.
+ *
+ * Listings only. Deleting or suspending the vendor itself moved to
+ * <AccountActions>, which asks the API what the delete would cost before
+ * offering it - the same control the riders, customers and providers tables
+ * use, so the four cannot drift apart.
+ */
+type Pending = { kind: 'product'; product: AdminProduct; vendorName: string } | null;
 
 export function Vendors() {
   const { data, isLoading, isError, error, refetch } = useVendors();
   const update = useUpdateVendor();
   const deleteProduct = useDeleteProduct();
-  const deleteVendor = useDeleteVendor();
 
   const [expanded, setExpanded] = useState<string | null>(null);
   const [pending, setPending] = useState<Pending>(null);
 
   // Whichever mutation last failed is the one worth showing.
-  const failure = [update, deleteProduct, deleteVendor].find((m) => m.isError);
+  const failure = [update, deleteProduct].find((m) => m.isError);
 
   function confirm() {
     if (!pending) return;
-
-    const mutation = pending.kind === 'product' ? deleteProduct : deleteVendor;
-    const id = pending.kind === 'product' ? pending.product.id : pending.vendor.id;
-
-    mutation.mutate(id, {
-      onSuccess: () => setPending(null),
-      // Deliberately stays open on failure: the vendor delete is refused when
-      // the vendor has orders, and that explanation belongs next to the button
-      // that triggered it rather than behind a dismissed dialog.
-    });
+    deleteProduct.mutate(pending.product.id, { onSuccess: () => setPending(null) });
   }
 
   return (
@@ -77,6 +71,7 @@ export function Vendors() {
                   <th className="px-5 py-3 text-center font-semibold">Can bid</th>
                   <th className="px-5 py-3 text-center font-semibold">Open</th>
                   <th className="px-5 py-3 text-right font-semibold">Listings</th>
+                  <th className="px-5 py-3 text-right font-semibold">Account</th>
                 </tr>
               </thead>
               <tbody>
@@ -87,8 +82,14 @@ export function Vendors() {
                     <Fragment key={v.id}>
                       <tr className="border-b border-hairline hover:bg-surface">
                         <td className="px-5 py-3">
-                          <p className="font-semibold text-ink">{v.name}</p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-semibold text-ink">{v.name}</p>
+                            <SuspendedPill suspendedAt={v.suspendedAt} />
+                          </div>
                           <p className="text-[12px] text-muted">{v.tags.slice(0, 3).join(' · ')}</p>
+                          {v.suspendedReason ? (
+                            <p className="text-[12px] text-error">{v.suspendedReason}</p>
+                          ) : null}
                         </td>
                         <td className="px-5 py-3 text-body">{v.area ?? '—'}</td>
                         <td className="num px-5 py-3 text-body">{v.rating.toFixed(1)}</td>
@@ -120,17 +121,24 @@ export function Vendors() {
                             {v._count.products} {open ? '▲' : '▼'}
                           </Button>
                         </td>
+                        <td className="px-5 py-3">
+                          <AccountActions
+                            role="vendor"
+                            id={v.id}
+                            name={v.name}
+                            suspendedAt={v.suspendedAt}
+                          />
+                        </td>
                       </tr>
 
                       {open ? (
                         <tr className="border-b border-hairline">
-                          <td colSpan={7} className="bg-surface px-5 py-4">
+                          <td colSpan={8} className="bg-surface px-5 py-4">
                             <Catalogue
                               vendor={v}
                               onDeleteProduct={(product) =>
                                 setPending({ kind: 'product', product, vendorName: v.name })
                               }
-                              onDeleteVendor={() => setPending({ kind: 'vendor', vendor: v })}
                             />
                           </td>
                         </tr>
@@ -147,7 +155,7 @@ export function Vendors() {
 
       <ConfirmDelete
         pending={pending}
-        busy={deleteProduct.isPending || deleteVendor.isPending}
+        busy={deleteProduct.isPending}
         onCancel={() => setPending(null)}
         onConfirm={confirm}
       />
@@ -155,18 +163,15 @@ export function Vendors() {
   );
 }
 
-/** The expanded panel under a vendor row: its listings, plus vendor-level deletion. */
+/** The expanded panel under a vendor row: its listings. */
 function Catalogue({
   vendor,
   onDeleteProduct,
-  onDeleteVendor,
 }: {
   vendor: Vendor;
   onDeleteProduct: (product: AdminProduct) => void;
-  onDeleteVendor: () => void;
 }) {
   const { data, isLoading, isError, error, refetch } = useVendorProducts(vendor.id);
-  const traded = vendor._count.orders > 0;
 
   return (
     <div>
@@ -200,17 +205,6 @@ function Catalogue({
         </ul>
       )}
 
-      <div className="flex items-center justify-between gap-4 border-t border-hairline pt-3">
-        <p className="text-[12px] text-muted">
-          {traded
-            ? `${vendor._count.orders} order(s) reference this vendor, so it cannot be deleted. ` +
-              'Set it to unverified and closed to take it off the app.'
-            : 'This vendor has never traded, so it can be removed entirely.'}
-        </p>
-        <Button variant="danger" size="sm" disabled={traded} onClick={onDeleteVendor}>
-          Delete vendor
-        </Button>
-      </div>
     </div>
   );
 }
@@ -226,12 +220,10 @@ function ConfirmDelete({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
-  const isProduct = pending?.kind === 'product';
-
   return (
     <Modal
       open={pending !== null}
-      title={isProduct ? 'Delete listing' : 'Delete vendor'}
+      title="Delete listing"
       onClose={onCancel}
       footer={
         <>
@@ -239,12 +231,12 @@ function ConfirmDelete({
             Cancel
           </Button>
           <Button variant="danger" onClick={onConfirm} loading={busy}>
-            {isProduct ? 'Delete listing' : 'Delete vendor'}
+            Delete listing
           </Button>
         </>
       }
     >
-      {pending === null ? null : pending.kind === 'product' ? (
+      {pending === null ? null : (
         <>
           <p className="text-body">
             Delete <strong className="text-ink">{pending.product.name}</strong> from{' '}
@@ -257,11 +249,6 @@ function ConfirmDelete({
             </p>
           ) : null}
         </>
-      ) : (
-        <p className="text-body">
-          Delete <strong className="text-ink">{pending.vendor.name}</strong> and all{' '}
-          {pending.vendor._count.products} of its listings? This cannot be undone.
-        </p>
       )}
     </Modal>
   );

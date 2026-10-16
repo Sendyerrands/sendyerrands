@@ -195,6 +195,14 @@ model User {
   referralCode      String   @unique
   referredByCode    String?
   isActive          Boolean  @default(true)
+  /// Set when ops suspends this account, and the single source of truth for
+  /// whether it may still be used. Enforced in requireAuth on every request,
+  /// not only at login: tokens last 30 days, so a check made only at the door
+  /// would leave a suspended account working for a month.
+  suspendedAt     DateTime?
+  /// Why, in ops' own words. Shown to the account holder when they are turned
+  /// away, so a suspension is not a silent failure they phone support about.
+  suspendedReason String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -228,6 +236,14 @@ model Rider {
   zone                  String?
   status                RiderStatus  @default(PENDING)
   isOnline              Boolean      @default(false)
+  /// Set when ops suspends this account, and the single source of truth for
+  /// whether it may still be used. Enforced in requireAuth on every request,
+  /// not only at login: tokens last 30 days, so a check made only at the door
+  /// would leave a suspended account working for a month.
+  suspendedAt     DateTime?
+  /// Why, in ops' own words. Shown to the account holder when they are turned
+  /// away, so a suspension is not a silent failure they phone support about.
+  suspendedReason String?
   rating                Float        @default(5)
   completedJobs         Int          @default(0)
   // Payout destination — verified against Paystack before any transfer.
@@ -366,6 +382,14 @@ model Vendor {
   coverUrl        String?
   // Vendors may bid on open marketplace requests (design.md §11).
   canBid          Boolean  @default(false)
+  /// Set when ops suspends this account, and the single source of truth for
+  /// whether it may still be used. Enforced in requireAuth on every request,
+  /// not only at login: tokens last 30 days, so a check made only at the door
+  /// would leave a suspended account working for a month.
+  suspendedAt     DateTime?
+  /// Why, in ops' own words. Shown to the account holder when they are turned
+  /// away, so a suspension is not a silent failure they phone support about.
+  suspendedReason String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -673,6 +697,14 @@ model ServiceProvider {
   isVerified  Boolean  @default(false)
   /// Accepting work right now. The provider's own toggle.
   isAvailable Boolean  @default(true)
+  /// Set when ops suspends this account, and the single source of truth for
+  /// whether it may still be used. Enforced in requireAuth on every request,
+  /// not only at login: tokens last 30 days, so a check made only at the door
+  /// would leave a suspended account working for a month.
+  suspendedAt     DateTime?
+  /// Why, in ops' own words. Shown to the account holder when they are turned
+  /// away, so a suspension is not a silent failure they phone support about.
+  suspendedReason String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

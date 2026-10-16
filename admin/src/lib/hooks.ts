@@ -2,6 +2,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { api } from '@/lib/api';
 import type {
+  ServiceProviderAdmin,
+  AccountSnapshot,
+  AccountRole,
   Customer,
   DashboardStats,
   MarketplaceRequest,
@@ -207,15 +210,95 @@ export function useDeleteProduct() {
   });
 }
 
-export function useDeleteVendor() {
+// ── accounts: suspend, restore, delete ───────────────────
+//
+// One set of hooks for all four roles. Every list that shows people is
+// invalidated after a change rather than only the one the action came from:
+// a suspended rider appears on the riders table and in the payouts queue, and
+// a half-refreshed dashboard is how ops ends up acting on a stale row.
+
+const ACCOUNT_LISTS = [
+  'customers',
+  'riders',
+  'vendors',
+  'providers',
+  'payouts',
+  'dashboard',
+] as const;
+
+function invalidateAccounts(qc: ReturnType<typeof useQueryClient>) {
+  for (const key of ACCOUNT_LISTS) qc.invalidateQueries({ queryKey: [key] });
+  qc.invalidateQueries({ queryKey: ['account'] });
+}
+
+/**
+ * What suspending or deleting this account would mean.
+ *
+ * Fetched when the menu opens so the dialog can say "4 orders, cannot be
+ * deleted" instead of offering a button that fails on click.
+ */
+export function useAccount(role: AccountRole, id: string | null) {
+  return useQuery({
+    queryKey: ['account', role, id],
+    queryFn: () => api<AccountSnapshot>(`/admin/accounts/${role}/${id}`),
+    enabled: Boolean(id),
+  });
+}
+
+export function useSuspendAccount() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) =>
-      api<{ id: string; name: string; productsDeleted: number }>(`/admin/vendors/${id}`, {
-        method: 'DELETE',
+    mutationFn: (v: { role: AccountRole; id: string; reason: string }) =>
+      api<{ id: string; name: string; suspendedAt: string }>(
+        `/admin/accounts/${v.role}/${v.id}/suspend`,
+        { method: 'POST', body: JSON.stringify({ reason: v.reason }) }
+      ),
+    onSuccess: () => invalidateAccounts(qc),
+  });
+}
+
+export function useRestoreAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { role: AccountRole; id: string }) =>
+      api<{ id: string; name: string }>(`/admin/accounts/${v.role}/${v.id}/restore`, {
+        method: 'POST',
+      }),
+    onSuccess: () => invalidateAccounts(qc),
+  });
+}
+
+export function useDeleteAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { role: AccountRole; id: string }) =>
+      api<{ id: string; name: string; alsoDeleted: string | null }>(
+        `/admin/accounts/${v.role}/${v.id}`,
+        { method: 'DELETE' }
+      ),
+    onSuccess: () => invalidateAccounts(qc),
+  });
+}
+
+// ── service providers ─────────────────────────────
+
+export function useProviders() {
+  return useQuery({
+    queryKey: ['providers'],
+    queryFn: () => api<ServiceProviderAdmin[]>('/admin/providers'),
+  });
+}
+
+export function useUpdateProvider() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; patch: Partial<ServiceProviderAdmin> }) =>
+      api<ServiceProviderAdmin>(`/admin/providers/${v.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(v.patch),
       }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['vendors'] });
+      qc.invalidateQueries({ queryKey: ['providers'] });
       qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
   });

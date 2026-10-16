@@ -22,6 +22,7 @@ const NAV = [
   { to: '/vendors', label: 'Vendors' },
   { to: '/applications', label: 'Applications' },
   { to: '/provider-applications', label: 'Provider applications' },
+  { to: '/service-providers', label: 'Service providers' },
   { to: '/payments', label: 'Payments' },
   { to: '/payouts', label: 'Payouts' },
   { to: '/services', label: 'Services' },

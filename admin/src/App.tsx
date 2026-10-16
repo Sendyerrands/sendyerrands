@@ -16,6 +16,7 @@ import { PasswordReset } from '@/pages/PasswordReset';
 import { Payments } from '@/pages/Payments';
 import { Payouts } from '@/pages/Payouts';
 import { Reviews } from '@/pages/Reviews';
+import { ServiceProviders } from '@/pages/ServiceProviders';
 import { Services } from '@/pages/Services';
 import { Support } from '@/pages/Support';
 import { Vendors } from '@/pages/Vendors';
@@ -60,6 +61,7 @@ function Shell() {
         <Route path="/customers" element={<Customers />} />
         <Route path="/payments" element={<Payments />} />
         <Route path="/services" element={<Services />} />
+        <Route path="/service-providers" element={<ServiceProviders />} />
         <Route path="/reviews" element={<Reviews />} />
         <Route path="/support" element={<Support />} />
         <Route path="/riders" element={<Riders />} />

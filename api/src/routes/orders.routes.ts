@@ -174,7 +174,9 @@ ordersRouter.post(
       prisma.address.findFirst({ where: { id: body.addressId, userId: customerId } }),
     ]);
 
-    if (!vendor) throw notFound('Vendor');
+    // A cart built before the suspension still carries the vendor id, so
+    // hiding the vendor from browse is not enough to stop the order.
+    if (!vendor || vendor.suspendedAt) throw notFound('Vendor');
     if (!address) throw notFound('Address');
     if (!vendor.isOpen && !body.scheduledFor) {
       throw conflict(`${vendor.name} is closed right now. Schedule it for later instead.`);

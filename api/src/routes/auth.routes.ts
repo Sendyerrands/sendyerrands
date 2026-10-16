@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { env, features } from '@/config/env';
 import { badRequest, unauthorized } from '@/lib/errors';
 import { signToken } from '@/lib/jwt';
+import { assertLoginAllowed } from '@/lib/suspension';
 import {
   assertPasswordAcceptable,
   burnTimingBudget,
@@ -225,6 +226,13 @@ authRouter.post(
         throw wrong();
       }
       if (!(await verifyPassword(password, provider.passwordHash))) throw wrong();
+      /**
+       * After the password check, never before. Telling someone their account
+       * is suspended before they have proved it is theirs would confirm the
+       * account exists to anyone who guessed the address, which is the exact
+       * leak the single `wrong()` message above exists to prevent.
+       */
+      assertLoginAllowed(provider);
 
       return res.json({
         data: {
@@ -250,6 +258,7 @@ authRouter.post(
         throw wrong();
       }
       if (!(await verifyPassword(password, vendor.passwordHash))) throw wrong();
+      assertLoginAllowed(vendor);
 
       return res.json({
         data: {
@@ -273,6 +282,13 @@ authRouter.post(
         throw wrong();
       }
       if (!(await verifyPassword(password, rider.passwordHash))) throw wrong();
+      /**
+       * This is new. A suspended rider could sign in and keep working: the
+       * SUSPENDED status gated accepting a job via requireApprovedRider but
+       * nothing gated the door, so the suspension read as a label rather than
+       * a lock.
+       */
+      assertLoginAllowed(rider);
 
       return res.json({
         data: {
@@ -296,6 +312,8 @@ authRouter.post(
     }
     if (!(await verifyPassword(password, user.passwordHash))) throw wrong();
     if (!user.isActive) throw unauthorized('That account has been disabled. Contact support.');
+    // Carries the reason, which the isActive check above cannot.
+    assertLoginAllowed(user);
 
     res.json({
       data: {

@@ -45,6 +45,10 @@ vendorsRouter.get(
          * flips when a vendor is genuinely ready to take orders.
          */
         isVerified: true,
+        /* A suspended account is not shown to customers. `suspendedAt` is
+           the only thing a suspension writes, so this filter is what makes it
+           visible here - see src/lib/suspension.ts. */
+        suspendedAt: null,
         ...(q.openOnly ? { isOpen: true } : {}),
         ...(q.minRating ? { rating: { gte: q.minRating } } : {}),
         ...(q.tag ? { tags: { has: q.tag } } : {}),
@@ -79,7 +83,9 @@ vendorsRouter.get(
     const slug = req.params.slug!;
 
     const vendor = await prisma.vendor.findFirst({
-      where: { OR: [{ slug }, { id: slug }] },
+      // Suspended reads as gone, not as a storefront with an error on it:
+      // the 404 below is the honest answer for a vendor ops has pulled.
+      where: { suspendedAt: null, OR: [{ slug }, { id: slug }] },
       include: {
         products: {
           where: { inStock: true },

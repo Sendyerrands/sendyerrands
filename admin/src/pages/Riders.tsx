@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+import { AccountActions, SuspendedPill } from '@/components/AccountActions';
 import { PageHeader } from '@/components/Layout';
 import {
   Button,
@@ -107,16 +108,31 @@ export function Riders() {
                       )}
                     </td>
                     <td className="px-5 py-3">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <RiderPill status={r.status} />
+                        {/* Distinct from the verification status on purpose: a rider
+                            can be APPROVED and suspended at once, and the suspension
+                            is the one that decides whether they can sign in. */}
+                        <SuspendedPill suspendedAt={r.suspendedAt} />
                         {r.isOnline ? <Pill tone="bg-success/10 text-success" label="Online" /> : null}
                       </div>
+                      {r.suspendedReason ? (
+                        <p className="mt-1 text-[12px] text-error">{r.suspendedReason}</p>
+                      ) : null}
                     </td>
                     <td className="px-5 py-3 text-muted">{dateTime(r.createdAt)}</td>
                     <td className="px-5 py-3 text-right">
-                      <Button variant="secondary" size="sm" onClick={() => setSelected(r)}>
-                        Review
-                      </Button>
+                      <div className="flex justify-end gap-1.5">
+                        <Button variant="secondary" size="sm" onClick={() => setSelected(r)}>
+                          Review
+                        </Button>
+                        <AccountActions
+                          role="rider"
+                          id={r.id}
+                          name={fullName(r)}
+                          suspendedAt={r.suspendedAt}
+                        />
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -138,7 +154,7 @@ function ReviewModal({ rider, onClose }: { rider: Rider | null; onClose: () => v
 
   if (!rider) return null;
 
-  const act = (status: 'APPROVED' | 'REJECTED' | 'SUSPENDED') => {
+  const act = (status: 'APPROVED' | 'REJECTED') => {
     verify.mutate(
       { id: rider.id, status, ...(note.trim() ? { note: note.trim() } : {}) },
       {
@@ -160,15 +176,13 @@ function ReviewModal({ rider, onClose }: { rider: Rider | null; onClose: () => v
           <Button variant="ghost" onClick={onClose} disabled={verify.isPending}>
             Cancel
           </Button>
-          {rider.status === 'APPROVED' ? (
-            <Button variant="danger" loading={verify.isPending} onClick={() => act('SUSPENDED')}>
-              Suspend
-            </Button>
-          ) : (
-            <Button variant="danger" loading={verify.isPending} onClick={() => act('REJECTED')}>
-              Reject
-            </Button>
-          )}
+          {/* Reject, not suspend. Suspending used to live here and set
+              RiderStatus.SUSPENDED, which nothing on the login path ever
+              read - a suspended rider could sign in and keep working. The
+              Suspend button on the row is the real one. */}
+          <Button variant="danger" loading={verify.isPending} onClick={() => act('REJECTED')}>
+            Reject
+          </Button>
           <Button loading={verify.isPending} onClick={() => act('APPROVED')}>
             Approve
           </Button>

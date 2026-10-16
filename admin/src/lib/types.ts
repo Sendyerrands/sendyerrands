@@ -167,6 +167,9 @@ export type Rider = {
   bankName: string | null;
   bankAccountNo: string | null;
   createdAt: string;
+  /** Set while ops has the account locked out. Null means in good standing. */
+  suspendedAt: string | null;
+  suspendedReason: string | null;
   documents: RiderDocument[];
   _count?: { orders: number };
 };
@@ -262,6 +265,9 @@ export type Customer = {
   totalSpentKobo: number;
   lastOrderAt: string | null;
   /** Empty means they have never ordered. ['WEB'] means no app account. */
+  /** Set while ops has the account locked out. Null means in good standing. */
+  suspendedAt: string | null;
+  suspendedReason: string | null;
   channels: OrderChannel[];
   _count: { orders: number; supportRequests: number };
 };
@@ -333,6 +339,9 @@ export type Vendor = {
   isVerified: boolean;
   isOpen: boolean;
   canBid: boolean;
+  /** Set while ops has the account locked out. Null means in good standing. */
+  suspendedAt: string | null;
+  suspendedReason: string | null;
   coverUrl: string | null;
   /** Decides whether a vendor may be deleted — one with orders may not. */
   _count: { products: number; orders: number };
@@ -439,4 +448,57 @@ export type PayoutsPage = {
   minimumKobo: number;
   due: PayoutDue[];
   payouts: Payout[];
+};
+
+/* ── accounts ────────────────────────────────────────────────
+ *
+ * The four things a person can sign in as. Shared by the suspend / restore /
+ * delete controls, which behave identically for all of them.
+ */
+export type AccountRole = 'customer' | 'rider' | 'vendor' | 'provider';
+
+/**
+ * What suspending or deleting an account would mean, read before the
+ * confirmation is shown so it can refuse up front rather than on click.
+ */
+export type AccountSnapshot = {
+  id: string;
+  name: string;
+  role: AccountRole;
+  suspendedAt: string | null;
+  suspendedReason: string | null;
+  /** Reasons a delete is refused — orders, earnings, a wallet balance. */
+  blockers: string[];
+  canDelete: boolean;
+  isSuspended: boolean;
+  /** What a permitted delete takes with it, e.g. "3 product listing(s)". */
+  cascades: string | null;
+};
+
+/** A service provider as the dashboard manages them. */
+export type ServiceProviderAdmin = {
+  id: string;
+  name: string;
+  slug: string;
+  category: string;
+  area: string | null;
+  state: string;
+  phone: string | null;
+  email: string | null;
+  rating: number;
+  ratingCount: number;
+  isVerified: boolean;
+  /** The provider's own "taking work now" toggle. */
+  isAvailable: boolean;
+  canTravelByBike: boolean;
+  bikeFeeKobo: number;
+  carFeeKobo: number;
+  bankName: string | null;
+  bankAccountNo: string | null;
+  bankAccountName: string | null;
+  suspendedAt: string | null;
+  suspendedReason: string | null;
+  createdAt: string;
+  packages: { id: string; tier: string; name: string | null; priceKobo: number; isActive: boolean }[];
+  _count: { orders: number; packages: number; earnings: number };
 };

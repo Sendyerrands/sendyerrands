@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
-import { ApiError } from '@/lib/api/client';
+import { ApiError, setAccountBlockedHandler } from '@/lib/api/client';
 import { authApi, meApi, type ApiAddress, type ApiUser } from '@/lib/api/endpoints';
 import { koboToNaira } from '@/lib/api/mappers';
 import { markSessionPersistFailed, recordAuth } from '@/lib/diagnostics';
@@ -234,6 +234,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setActiveAddressId(null);
     queryClient.clear();
   }, [queryClient]);
+
+  /**
+   * Sign out the moment the API says the account is suspended or deleted.
+   *
+   * Before this, only the cold-start session check could clear a session,
+   * so a suspended user stayed inside the app with every screen showing the
+   * same error until they force-quit it. Ops pressing Suspend should put
+   * them on the sign-in screen, where trying again tells them why.
+   *
+   * Scoped to ACCOUNT_SUSPENDED and ACCOUNT_GONE only. A bare 401 can be a
+   * token that merely aged out mid-request, and discarding a working
+   * session over one of those is the overreach the client's own comment
+   * warns against.
+   */
+  useEffect(() => {
+    setAccountBlockedHandler((err) => {
+      recordAuth('blocked.signed-out', err.code);
+      void signOut();
+    });
+    return () => setAccountBlockedHandler(null);
+  }, [signOut]);
 
   const addToCart = useCallback((line: Omit<CartLine, 'qty'>, vendor: string) => {
     setCart((prev) => {

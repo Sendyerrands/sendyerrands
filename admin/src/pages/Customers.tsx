@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { AccountActions, SuspendedPill } from '@/components/AccountActions';
 import { PageHeader } from '@/components/Layout';
 import { Card, EmptyState, ErrorState, Loading, Pill } from '@/components/ui';
 import { dateTime, fullName, naira, relative } from '@/lib/format';
@@ -10,9 +11,11 @@ import type { Customer } from '@/lib/types';
 /**
  * The customer directory, replacing the PHP admin's customers.php.
  *
- * Read-only. Ops comes here to answer "who is this number calling me" and "have
- * they ordered before" — not to edit anybody, which happens on the order or the
- * refund that actually caused the change.
+ * Mostly a reference: ops comes here to answer "who is this number calling me"
+ * and "have they ordered before". The one thing it changes is the account
+ * itself — suspending somebody abusing the service, or deleting a signup that
+ * never ordered. Everything else still happens on the order or the refund
+ * that actually caused the change.
  */
 
 /** Typing is debounced so each keystroke is not a request. */
@@ -89,6 +92,7 @@ export function Customers() {
                     <th className="px-5 py-3 text-right font-semibold">Wallet</th>
                     <th className="px-5 py-3 font-semibold">Last order</th>
                     <th className="px-5 py-3 font-semibold">Joined</th>
+                    <th className="px-5 py-3 text-right font-semibold">Account</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -115,7 +119,12 @@ function Row({ customer: c }: { customer: Customer }) {
       <td className="px-5 py-3">
         <div className="flex flex-wrap items-center gap-2">
           <p className="font-semibold text-ink">{fullName(c)}</p>
+          {/* Two different things: isActive is the older flag the login path
+              has always read, suspendedAt is the one ops sets here and that
+              every request now checks. Both are shown rather than merged, so
+              an account disabled by the old route is not mislabelled. */}
           {!c.isActive ? <Pill tone="bg-error/10 text-error" label="Disabled" /> : null}
+          <SuspendedPill suspendedAt={c.suspendedAt} />
           {webOnly ? <Pill tone="bg-muted/15 text-body" label="Website only" /> : null}
           {c._count.supportRequests > 0 ? (
             <Pill
@@ -135,6 +144,9 @@ function Row({ customer: c }: { customer: Customer }) {
           {c.phone}
         </Link>
         <p className="truncate text-[12px] text-muted">{c.email ?? 'No email on file'}</p>
+        {c.suspendedReason ? (
+          <p className="text-[12px] text-error">{c.suspendedReason}</p>
+        ) : null}
       </td>
       <td className="num px-5 py-3 text-right text-body">{c._count.orders}</td>
       <td className="num px-5 py-3 text-right font-semibold text-ink">
@@ -147,6 +159,14 @@ function Row({ customer: c }: { customer: Customer }) {
       </td>
       <td className="px-5 py-3 text-muted">{c.lastOrderAt ? relative(c.lastOrderAt) : '—'}</td>
       <td className="px-5 py-3 text-muted">{dateTime(c.createdAt)}</td>
+      <td className="px-5 py-3">
+        <AccountActions
+          role="customer"
+          id={c.id}
+          name={fullName(c)}
+          suspendedAt={c.suspendedAt}
+        />
+      </td>
     </tr>
   );
 }

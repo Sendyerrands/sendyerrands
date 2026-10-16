@@ -6,7 +6,7 @@ import { z } from 'zod';
 
 import { badRequest, conflict, forbidden, notFound, unauthorized } from '@/lib/errors';
 import { signToken } from '@/lib/jwt';
-import { riderPayout } from '@/lib/money';
+import { formatNaira, riderPayout } from '@/lib/money';
 import { hashPassword } from '@/lib/password';
 import { prisma } from '@/lib/prisma';
 import { asyncHandler, validate } from '@/middleware';
@@ -125,17 +125,27 @@ adminRouter.get(
   })
 );
 
-/** PATCH /admin/riders/:id/verify — approve or reject a rider. */
+/**
+ * PATCH /admin/riders/:id/verify — approve or reject a rider.
+ *
+ * SUSPENDED used to be accepted here and is not any more. Setting the status to
+ * SUSPENDED read like a suspension and was not one: nothing on the login path
+ * ever checked it, so a suspended rider could sign in and keep working, and the
+ * only thing it really did was overwrite where they sat in verification.
+ * Suspension is POST /admin/accounts/rider/:id/suspend, which blocks them on
+ * the next request and can be lifted without having guessed what their status
+ * used to be.
+ */
 adminRouter.patch(
   '/riders/:id/verify',
   validate(
     z.object({
-      status: z.enum(['APPROVED', 'REJECTED', 'SUSPENDED']),
+      status: z.enum(['APPROVED', 'REJECTED']),
       note: z.string().max(300).optional(),
     })
   ),
   asyncHandler(async (req, res) => {
-    const { status, note } = req.body as { status: 'APPROVED' | 'REJECTED' | 'SUSPENDED'; note?: string };
+    const { status, note } = req.body as { status: 'APPROVED' | 'REJECTED'; note?: string };
     const riderId = req.params.id!;
 
     const rider = await prisma.rider.findUnique({ where: { id: riderId } });
@@ -904,38 +914,353 @@ adminRouter.delete(
   })
 );
 
-/**
- * DELETE /admin/vendors/:id — remove a vendor that never traded.
+/* ---------------------------------------------------------------------------
+ * Account suspension and deletion
  *
- * Refused once the vendor has orders. Order.vendorId is ON DELETE SET NULL and
- * Order stores no vendor name of its own, so deleting a traded vendor would
- * quietly erase who fulfilled every one of its past orders — unrecoverable, and
- * invisible until someone went looking for the history. Taking the vendor
- * offline achieves what deleting is usually meant to achieve, without that.
+ * Four kinds of account, one set of routes. Written generically rather than as
+ * twelve endpoints because the semantics must not drift: suspending a rider and
+ * suspending a vendor should mean the same thing, and the moment there are four
+ * copies of this logic one of them starts behaving differently.
+ *
+ * SUSPEND is the control ops should almost always reach for. It is reversible,
+ * it keeps every order, payment and payout row intact, and it is enforced on
+ * every request rather than only at login (see src/lib/suspension.ts).
+ *
+ * DELETE is permanent and is refused whenever it would destroy history or
+ * money. Those refusals are not politeness: Order.riderId and Order.vendorId
+ * are ON DELETE SET NULL, so deleting a rider or vendor that has traded would
+ * silently blank who did the work on every past order, and RiderEarning,
+ * Payout, ProviderEarning and ProviderPayout all cascade, so the same delete
+ * would take the payout ledger with it. Both are unrecoverable, and neither is
+ * visible until someone goes looking months later.
+ * ------------------------------------------------------------------------- */
+
+const ACCOUNT_ROLES = ['customer', 'rider', 'vendor', 'provider'] as const;
+type AccountRole = (typeof ACCOUNT_ROLES)[number];
+
+function parseRole(raw: string | undefined): AccountRole {
+  const role = ACCOUNT_ROLES.find((r) => r === raw);
+  if (!role) {
+    throw badRequest(`Unknown account type "${raw}". Expected one of: ${ACCOUNT_ROLES.join(', ')}.`);
+  }
+  return role;
+}
+
+/** A human label, so a refusal names what it is talking about. */
+const ROLE_LABEL: Record<AccountRole, string> = {
+  customer: 'Customer',
+  rider: 'Rider',
+  vendor: 'Vendor',
+  provider: 'Service provider',
+};
+
+type LoadedAccount = {
+  id: string;
+  name: string;
+  suspendedAt: Date | null;
+  suspendedReason: string | null;
+  /** Reasons a hard delete would destroy something. Empty means safe. */
+  blockers: string[];
+  /** What a permitted delete takes with it, for the confirmation copy. */
+  cascades: string | null;
+};
+
+/**
+ * Loads one account with everything the delete rules need to decide.
+ *
+ * Returns a uniform shape so the handlers below never need to know which table
+ * they are looking at.
+ */
+async function loadAccount(role: AccountRole, id: string): Promise<LoadedAccount> {
+  if (role === 'customer') {
+    const u = await prisma.user.findUnique({
+      where: { id },
+      include: { _count: { select: { orders: true } } },
+    });
+    if (!u) throw notFound(ROLE_LABEL[role]);
+    const blockers: string[] = [];
+    if (u._count.orders > 0) blockers.push(`${u._count.orders} order(s)`);
+    // Real money, and deleting the row deletes the claim on it.
+    if (u.walletBalanceKobo > 0) {
+      blockers.push(`a wallet balance of ${formatNaira(u.walletBalanceKobo)}`);
+    }
+    return {
+      id: u.id,
+      name: `${u.firstName} ${u.lastName}`.trim(),
+      suspendedAt: u.suspendedAt,
+      suspendedReason: u.suspendedReason,
+      blockers,
+      cascades: null,
+    };
+  }
+
+  if (role === 'rider') {
+    const r = await prisma.rider.findUnique({
+      where: { id },
+      include: { _count: { select: { orders: true, earnings: true, payouts: true } } },
+    });
+    if (!r) throw notFound(ROLE_LABEL[role]);
+    const blockers: string[] = [];
+    if (r._count.orders > 0) blockers.push(`${r._count.orders} delivered order(s)`);
+    if (r._count.earnings > 0) blockers.push(`${r._count.earnings} earning record(s)`);
+    if (r._count.payouts > 0) blockers.push(`${r._count.payouts} payout record(s)`);
+    return {
+      id: r.id,
+      name: `${r.firstName} ${r.lastName}`.trim(),
+      suspendedAt: r.suspendedAt,
+      suspendedReason: r.suspendedReason,
+      blockers,
+      cascades: null,
+    };
+  }
+
+  if (role === 'vendor') {
+    const v = await prisma.vendor.findUnique({
+      where: { id },
+      include: { _count: { select: { orders: true, products: true } } },
+    });
+    if (!v) throw notFound(ROLE_LABEL[role]);
+    const blockers: string[] = [];
+    if (v._count.orders > 0) blockers.push(`${v._count.orders} order(s)`);
+    return {
+      id: v.id,
+      name: v.name,
+      suspendedAt: v.suspendedAt,
+      suspendedReason: v.suspendedReason,
+      blockers,
+      // Products cascade, so say so before it happens rather than after.
+      cascades: v._count.products > 0 ? `${v._count.products} product listing(s)` : null,
+    };
+  }
+
+  const p = await prisma.serviceProvider.findUnique({
+    where: { id },
+    include: { _count: { select: { orders: true, earnings: true, payouts: true, packages: true } } },
+  });
+  if (!p) throw notFound(ROLE_LABEL[role]);
+  const blockers: string[] = [];
+  if (p._count.orders > 0) blockers.push(`${p._count.orders} booking(s)`);
+  if (p._count.earnings > 0) blockers.push(`${p._count.earnings} earning record(s)`);
+  if (p._count.payouts > 0) blockers.push(`${p._count.payouts} payout record(s)`);
+  return {
+    id: p.id,
+    name: p.name,
+    suspendedAt: p.suspendedAt,
+    suspendedReason: p.suspendedReason,
+    blockers,
+    cascades: p._count.packages > 0 ? `${p._count.packages} package(s)` : null,
+  };
+}
+
+/**
+ * GET /admin/accounts/:role/:id — what suspending or deleting this account
+ * would mean, before anyone presses the button.
+ *
+ * The dashboard asks for this when the menu opens, so the confirmation can say
+ * "this has 4 orders and cannot be deleted" instead of offering a button that
+ * fails on click.
+ */
+adminRouter.get(
+  '/accounts/:role/:id',
+  asyncHandler(async (req, res) => {
+    const role = parseRole(req.params.role);
+    const account = await loadAccount(role, req.params.id!);
+    res.json({
+      data: {
+        ...account,
+        role,
+        canDelete: account.blockers.length === 0,
+        isSuspended: Boolean(account.suspendedAt),
+      },
+    });
+  })
+);
+
+/**
+ * POST /admin/accounts/:role/:id/suspend
+ *
+ * The reason is required, not optional. It is shown to the account holder when
+ * they are turned away, and an unexplained suspension produces exactly the
+ * support call it should have prevented.
+ */
+adminRouter.post(
+  '/accounts/:role/:id/suspend',
+  validate(
+    z.object({
+      reason: z.string().trim().min(3, 'Say why — the person is shown this.').max(300),
+    })
+  ),
+  asyncHandler(async (req, res) => {
+    const role = parseRole(req.params.role);
+    const { reason } = req.body as { reason: string };
+    const account = await loadAccount(role, req.params.id!);
+
+    const suspendedAt = new Date();
+    const data = { suspendedAt, suspendedReason: reason };
+
+    if (role === 'customer') {
+      await prisma.user.update({ where: { id: account.id }, data });
+    } else if (role === 'rider') {
+      /**
+       * isOnline goes false with the suspension. A rider left online is one
+       * dispatch keeps offering work to, and they can no longer sign in to take
+       * themselves off. It is not restored on unsuspend, because going online
+       * is the rider's own action rather than ops'.
+       *
+       * Deliberately NOT setting status to SUSPENDED. The status column carries
+       * where a rider sits in verification (PENDING / IN_REVIEW / APPROVED) and
+       * overwriting it loses that with nothing to restore it from — an
+       * unsuspended rider would come back APPROVED whether or not they ever
+       * were. suspendedAt is what the auth layer reads, so the lock does not
+       * need the status field's help.
+       */
+      await prisma.rider.update({ where: { id: account.id }, data: { ...data, isOnline: false } });
+    } else if (role === 'vendor') {
+      await prisma.vendor.update({ where: { id: account.id }, data });
+    } else {
+      await prisma.serviceProvider.update({ where: { id: account.id }, data });
+    }
+
+    res.json({ data: { id: account.id, name: account.name, role, suspendedAt, reason } });
+  })
+);
+
+/**
+ * POST /admin/accounts/:role/:id/restore — lift a suspension.
+ *
+ * Clears the two columns and nothing else, which is what makes a suspension
+ * exactly reversible: because suspending wrote only those two columns, an
+ * account comes back verified if it was verified, pending if it was pending,
+ * open if it was open. Nothing has to be remembered or guessed.
+ */
+adminRouter.post(
+  '/accounts/:role/:id/restore',
+  asyncHandler(async (req, res) => {
+    const role = parseRole(req.params.role);
+    const account = await loadAccount(role, req.params.id!);
+
+    if (!account.suspendedAt) throw conflict(`${account.name} is not suspended.`);
+
+    const data = { suspendedAt: null, suspendedReason: null };
+    if (role === 'customer') await prisma.user.update({ where: { id: account.id }, data });
+    else if (role === 'rider') await prisma.rider.update({ where: { id: account.id }, data });
+    else if (role === 'vendor') await prisma.vendor.update({ where: { id: account.id }, data });
+    else await prisma.serviceProvider.update({ where: { id: account.id }, data });
+
+    res.json({ data: { id: account.id, name: account.name, role, suspendedAt: null } });
+  })
+);
+
+/**
+ * DELETE /admin/accounts/:role/:id — permanent, and refused when it would cost
+ * something that cannot be got back.
+ *
+ * The rules only permit it for an account that never traded: a spam signup, a
+ * duplicate vendor created by mistake, a provider onboarded into the wrong
+ * category. Anything with history is a suspension, and the refusal says so.
  */
 adminRouter.delete(
-  '/vendors/:id',
+  '/accounts/:role/:id',
   asyncHandler(async (req, res) => {
-    const vendor = await prisma.vendor.findUnique({
-      where: { id: req.params.id! },
-      include: { _count: { select: { products: true, orders: true } } },
-    });
-    if (!vendor) throw notFound('Vendor');
+    const role = parseRole(req.params.role);
+    const account = await loadAccount(role, req.params.id!);
 
-    if (vendor._count.orders > 0) {
+    if (account.blockers.length > 0) {
       throw conflict(
-        `${vendor.name} has ${vendor._count.orders} order(s) and cannot be deleted — ` +
-          'that would erase which vendor fulfilled them. Switch it to unverified and ' +
-          'closed instead to take it off the app.'
+        `${account.name} has ${account.blockers.join(', ')} and cannot be deleted — ` +
+          'that history would be erased, not archived. Suspend the account instead: it ' +
+          'blocks sign-in immediately and can be lifted later.'
       );
     }
 
-    // Products cascade (Product.vendor is onDelete: Cascade).
-    await prisma.vendor.delete({ where: { id: vendor.id } });
+    if (role === 'customer') await prisma.user.delete({ where: { id: account.id } });
+    else if (role === 'rider') await prisma.rider.delete({ where: { id: account.id } });
+    else if (role === 'vendor') await prisma.vendor.delete({ where: { id: account.id } });
+    else await prisma.serviceProvider.delete({ where: { id: account.id } });
 
     res.json({
-      data: { id: vendor.id, name: vendor.name, productsDeleted: vendor._count.products },
+      data: {
+        id: account.id,
+        name: account.name,
+        role,
+        /* Named so the dashboard reports what went with it rather than
+           implying the row left alone. */
+        alsoDeleted: account.cascades,
+      },
     });
+  })
+);
+
+/* ---------------------------------------------------------------------------
+ * Service providers
+ *
+ * There was no way to manage a provider at all. Approving a provider
+ * application creates the ServiceProvider row, and then nothing could touch it:
+ * no screen to verify them, set their arrival fees, or take them offline. The
+ * approval queue was minting records into a dead end.
+ * ------------------------------------------------------------------------- */
+
+/** GET /admin/providers — every provider, suspended ones included. */
+adminRouter.get(
+  '/providers',
+  asyncHandler(async (_req, res) => {
+    const providers = await prisma.serviceProvider.findMany({
+      orderBy: [{ createdAt: 'desc' }],
+      include: {
+        _count: { select: { orders: true, packages: true, earnings: true } },
+        packages: {
+          orderBy: { priceKobo: 'asc' },
+          select: { id: true, tier: true, name: true, priceKobo: true, isActive: true },
+        },
+      },
+      take: 200,
+    });
+    res.json({ data: providers });
+  })
+);
+
+/**
+ * PATCH /admin/providers/:id — verify, take offline, or set the arrival fees.
+ *
+ * The fees are here because they are what a newly approved provider is missing:
+ * the application never asks for them, so every approval lands on the schema
+ * defaults until ops sets what it actually costs to send this person out.
+ */
+adminRouter.patch(
+  '/providers/:id',
+  validate(
+    z.object({
+      isVerified: z.boolean().optional(),
+      isAvailable: z.boolean().optional(),
+      canTravelByBike: z.boolean().optional(),
+      bikeFeeKobo: z.number().int().min(0).max(5_000_000).optional(),
+      carFeeKobo: z.number().int().min(0).max(5_000_000).optional(),
+      category: z.string().trim().min(2).max(60).optional(),
+      area: z.string().trim().max(120).optional(),
+    })
+  ),
+  asyncHandler(async (req, res) => {
+    const existing = await prisma.serviceProvider.findUnique({
+      where: { id: req.params.id! },
+      select: { id: true, name: true, suspendedAt: true },
+    });
+    if (!existing) throw notFound('Service provider');
+
+    /**
+     * Refused while suspended rather than quietly applied. Marking a suspended
+     * provider available would read on this screen as putting them back live,
+     * and they would stay hidden and locked out — a dead control. Lifting the
+     * suspension is what puts them back, not this.
+     */
+    if (existing.suspendedAt) {
+      throw conflict(`${existing.name} is suspended. Lift the suspension before editing them.`);
+    }
+
+    const provider = await prisma.serviceProvider.update({
+      where: { id: existing.id },
+      data: req.body as Record<string, never>,
+    });
+    res.json({ data: provider });
   })
 );
 
@@ -1352,6 +1677,10 @@ adminRouter.get(
         phone: true,
         walletBalanceKobo: true,
         isActive: true,
+        /* Explicit select, so these have to be named here or the dashboard
+           renders every customer as not suspended however many are. */
+        suspendedAt: true,
+        suspendedReason: true,
         createdAt: true,
         _count: { select: { orders: true, supportRequests: true } },
       },

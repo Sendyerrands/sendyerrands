@@ -385,7 +385,9 @@ marketplaceRouter.post(
     ]);
 
     if (!request) throw notFound('Request');
-    if (!vendor) throw notFound('Vendor');
+    // Belt and braces: a suspended vendor cannot sign in to reach this,
+    // but the bid carries its own vendorId rather than reading the token.
+    if (!vendor || vendor.suspendedAt) throw notFound('Vendor');
     if (!vendor.canBid) throw forbidden('This vendor is not approved to bid yet.');
     if (request.status !== 'OPEN') throw conflict('This request is no longer accepting bids.');
     if (request.closesAt < new Date()) throw conflict('Bidding has closed on this request.');

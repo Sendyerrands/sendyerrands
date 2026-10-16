@@ -116,7 +116,26 @@ async function findOrCreateWebCustomer(booking: {
   lastName: string;
 }) {
   const existing = await prisma.user.findUnique({ where: { phone: booking.phone } });
-  if (existing) return existing;
+  if (existing) {
+    /**
+     * The website is the one way in that carries no token, so the
+     * suspension check in requireAuth never runs for it. Without this a
+     * suspended customer simply books from sendyerrands.com instead, and
+     * the suspension holds everywhere except the channel they would
+     * obviously try next.
+     *
+     * The message does not say "suspended". Anyone can type anyone's
+     * phone number into a public booking form, and naming the reason
+     * would turn this into a way to ask whether a given number is in
+     * trouble with Sendy. Ops can see the reason in the dashboard.
+     */
+    if (existing.suspendedAt) {
+      throw conflict(
+        'We cannot take a booking from this number. Please contact support@sendyerrands.com.'
+      );
+    }
+    return existing;
+  }
 
   /**
    * Email is required and unique, but the booking form does not have to collect

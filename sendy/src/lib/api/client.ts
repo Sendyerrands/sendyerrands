@@ -57,6 +57,20 @@ export class ApiError extends Error {
   get isAuthError() {
     return this.status === 401;
   }
+
+  /**
+   * True when the account itself is gone, not merely the token.
+   *
+   * Separate from isAuthError because the handling differs: an expired
+   * token is worth retrying after a fresh sign-in, whereas a suspended or
+   * deleted account will refuse every request until ops lifts it. Only
+   * these two codes qualify - a bare 401 can be a token that merely aged
+   * out, and tearing the session down for one of those is the overreach
+   * the comment above warns about.
+   */
+  get isAccountBlocked() {
+    return this.status === 401 && (this.code === 'ACCOUNT_SUSPENDED' || this.code === 'ACCOUNT_GONE');
+  }
 }
 
 type RequestOptions = {
@@ -79,6 +93,19 @@ type RequestOptions = {
  * The real fix is a plan that does not sleep. Until then this is the floor.
  */
 const TIMEOUT_MS = 30_000;
+
+/**
+ * Called when the API says the account is suspended or deleted.
+ *
+ * A callback rather than a direct import because the session store already
+ * imports this module, and importing it back would be a cycle. The store
+ * registers itself on mount.
+ */
+let onAccountBlocked: ((err: ApiError) => void) | null = null;
+
+export function setAccountBlockedHandler(fn: ((err: ApiError) => void) | null) {
+  onAccountBlocked = fn;
+}
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, token, signal, timeoutMs = TIMEOUT_MS } = options;
@@ -105,12 +132,21 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
 
     if (!res.ok) {
       const err = payload?.error;
-      throw new ApiError(
+      const apiError = new ApiError(
         res.status,
         err?.code ?? 'UNKNOWN',
         err?.message ?? 'Something went wrong. Please try again.',
         err?.details
       );
+      /**
+       * Tear the session down here rather than leaving it to whichever
+       * screen happened to make the call. A suspended account otherwise
+       * stays in the signed-in shell showing the same error on every tab
+       * until the app is force-quit, because the only place that cleared a
+       * session was the cold-start check in the store.
+       */
+      if (apiError.isAccountBlocked) onAccountBlocked?.(apiError);
+      throw apiError;
     }
 
     // The API wraps every success in { data: … }.
