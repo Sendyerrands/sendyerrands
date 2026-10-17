@@ -251,7 +251,7 @@ export function useSuspendAccount() {
     mutationFn: (v: { role: AccountRole; id: string; reason: string }) =>
       api<{ id: string; name: string; suspendedAt: string }>(
         `/admin/accounts/${v.role}/${v.id}/suspend`,
-        { method: 'POST', body: JSON.stringify({ reason: v.reason }) }
+        { method: 'POST', body: { reason: v.reason } }
       ),
     onSuccess: () => invalidateAccounts(qc),
   });
@@ -295,7 +295,7 @@ export function useUpdateProvider() {
     mutationFn: (v: { id: string; patch: Partial<ServiceProviderAdmin> }) =>
       api<ServiceProviderAdmin>(`/admin/providers/${v.id}`, {
         method: 'PATCH',
-        body: JSON.stringify(v.patch),
+        body: v.patch,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['providers'] });
@@ -326,7 +326,7 @@ export function useDecideProviderApplication() {
     mutationFn: (v: { id: string; decision: 'APPROVE' | 'REJECT'; note?: string }) =>
       api<ProviderApplication>(`/admin/provider-applications/${v.id}/decide`, {
         method: 'POST',
-        body: JSON.stringify({ decision: v.decision, note: v.note }),
+        body: { decision: v.decision, note: v.note },
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['provider-applications'] });

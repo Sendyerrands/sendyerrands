@@ -168,6 +168,16 @@ function ReviewModal({
     >
       {application === null ? null : (
         <>
+          {/* Said out loud because the result surprises people: approving does
+              not put the vendor in the app. It creates them unverified and
+              closed, with no catalogue and no delivery fee, and ops flips those
+              on the Vendors page once the shop is actually ready. Without this
+              line an approval reads as having silently failed. */}
+          <p className="mb-4 rounded-lg bg-info/10 px-3 py-2 text-[13px] text-info">
+            Approving creates the vendor <strong>unverified, closed and unable to bid</strong>, so
+            customers will not see them yet. Set their delivery fee and catalogue on the Vendors
+            page, then switch those on.
+          </p>
           <dl className="mb-4 grid grid-cols-[7rem_1fr] gap-y-2 text-sm">
             <dt className="text-muted">Business</dt>
             <dd className="font-semibold text-ink">{application.businessName}</dd>

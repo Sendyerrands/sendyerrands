@@ -82,7 +82,11 @@ export default function RiderMe() {
           <View className="flex-1 ml-4">
             <View className="flex-row items-center">
               <Text className="text-ink text-[20px] font-bold mr-1.5">{RIDER.name}</Text>
-              <Verified size={17} />
+              {/* Only when they really are. This tick was unconditional, so a
+                  rider who had uploaded nothing still got a verified badge
+                  beside their name - the same bug the card below this one
+                  was already fixed for. */}
+              {approved ? <Verified size={17} /> : null}
             </View>
             <View className="flex-row items-center mt-1">
               <Ionicons name="star" size={13} color={colors.star} />

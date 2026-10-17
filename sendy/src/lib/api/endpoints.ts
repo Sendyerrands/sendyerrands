@@ -525,10 +525,19 @@ export type MarketplaceRequest = {
 // ── rider ───────────────────────────────────────────────────
 export const riderApi = {
   me: (token: string) =>
-    api.get<ApiRider & { today: { earningsKobo: number; trips: number }; zone: string | null; plateNumber: string | null; vehicleType: string | null; completedJobs: number }>(
-      '/rider/me',
-      token
-    ),
+    api.get<
+      ApiRider & {
+        today: { earningsKobo: number; trips: number };
+        zone: string | null;
+        plateNumber: string | null;
+        vehicleType: string | null;
+        completedJobs: number;
+        /* Already returned by GET /rider/me (it includes documents); it was
+           simply never typed, which is how the verification screen ended up
+           showing a hardcoded list instead of these. */
+        documents: { id: string; type: string; status: string; reviewNote: string | null }[];
+      }
+    >('/rider/me', token),
 
   setAvailability: (isOnline: boolean, token: string) =>
     api.patch<{ id: string; isOnline: boolean }>('/rider/availability', { isOnline }, token),

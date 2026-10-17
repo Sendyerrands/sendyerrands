@@ -5,29 +5,59 @@ import { Pressable, ScrollView, Text, View } from 'react-native';
 import { Badge, Card, Divider } from '@/components/ui/atoms';
 import { Button } from '@/components/ui/Button';
 import { Screen, ScreenHeader, StickyBar } from '@/components/ui/Screen';
+import { useRiderMe } from '@/lib/api/hooks';
 import { colors } from '@/lib/theme';
 
-type DocState = 'approved' | 'review' | 'missing';
+type DocState = 'approved' | 'review' | 'rejected' | 'missing';
 
-const DOCS: { id: string; label: string; hint: string; state: DocState }[] = [
-  { id: 'nin', label: 'NIN slip or National ID', hint: 'Front side, all corners visible', state: 'approved' },
-  { id: 'licence', label: "Rider's licence", hint: 'Must be valid for 3+ months', state: 'approved' },
-  { id: 'photo', label: 'Passport photograph', hint: 'Plain background, no cap', state: 'approved' },
-  { id: 'bike', label: 'Vehicle papers', hint: 'Registration & proof of ownership', state: 'review' },
-  { id: 'guarantor', label: 'Guarantor form', hint: 'Signed, with a valid ID attached', state: 'missing' },
+/**
+ * The five documents, and what each one is called in the database.
+ *
+ * This list used to carry a hardcoded `state` - NIN, licence and photo were
+ * all set to 'approved' - so every rider who opened this screen was told they
+ * were 60% verified and that their ID had been accepted, including an account
+ * created a minute earlier that had uploaded nothing. The labels stay here
+ * because they are copy; the state now comes from the rider's own record.
+ */
+const DOCS: { id: DocumentType; label: string; hint: string }[] = [
+  { id: 'NIN', label: 'NIN slip or National ID', hint: 'Front side, all corners visible' },
+  { id: 'LICENCE', label: "Rider's licence", hint: 'Must be valid for 3+ months' },
+  { id: 'PHOTO', label: 'Passport photograph', hint: 'Plain background, no cap' },
+  { id: 'VEHICLE_PAPERS', label: 'Vehicle papers', hint: 'Registration & proof of ownership' },
+  { id: 'GUARANTOR_FORM', label: 'Guarantor form', hint: 'Signed, with a valid ID attached' },
 ];
 
-const TONE: Record<DocState, { label: string; tone: 'success' | 'info' | 'muted'; icon: keyof typeof Ionicons.glyphMap }> = {
+type DocumentType = 'NIN' | 'LICENCE' | 'PHOTO' | 'VEHICLE_PAPERS' | 'GUARANTOR_FORM';
+
+/** A document with no row at all has not been uploaded, so it reads as missing. */
+function stateOf(status: string | undefined): DocState {
+  if (status === 'APPROVED') return 'approved';
+  if (status === 'IN_REVIEW') return 'review';
+  if (status === 'REJECTED') return 'rejected';
+  return 'missing';
+}
+
+const TONE: Record<DocState, { label: string; tone: 'success' | 'info' | 'error' | 'muted'; icon: keyof typeof Ionicons.glyphMap }> = {
   approved: { label: 'Approved', tone: 'success', icon: 'checkmark-circle' },
   review: { label: 'In review', tone: 'info', icon: 'time' },
+  // Its own state rather than folding into "Required": a rider whose licence
+  // came back rejected needs to know it was looked at and refused, not think
+  // the upload failed.
+  rejected: { label: 'Rejected', tone: 'error', icon: 'alert-circle' },
   missing: { label: 'Required', tone: 'muted', icon: 'add-circle-outline' },
 };
 
 /** Rider verification (design.md §10) — document upload + status. */
 export default function RiderVerify() {
   const router = useRouter();
-  const done = DOCS.filter((d) => d.state === 'approved').length;
-  const pct = Math.round((done / DOCS.length) * 100);
+  const { data: rider } = useRiderMe();
+
+  const docs = DOCS.map((d) => ({
+    ...d,
+    state: stateOf(rider?.documents?.find((r) => r.type === d.id)?.status),
+  }));
+  const done = docs.filter((d) => d.state === 'approved').length;
+  const pct = Math.round((done / docs.length) * 100);
 
   return (
     <Screen className="bg-surface">
@@ -42,7 +72,7 @@ export default function RiderVerify() {
             <View className="flex-1">
               <Text className="text-ink text-[17px] font-bold">You&apos;re {pct}% verified</Text>
               <Text className="text-muted text-[13px] mt-0.5">
-                {done} of {DOCS.length} documents approved
+                {done} of {docs.length} documents approved
               </Text>
             </View>
             <View className="w-12 h-12 rounded-full bg-pink-50 items-center justify-center">
@@ -65,7 +95,7 @@ export default function RiderVerify() {
         {/* documents */}
         <Text className="text-muted text-[13px] font-semibold mt-6 mb-2.5">DOCUMENTS</Text>
         <Card>
-          {DOCS.map((doc, i) => {
+          {docs.map((doc, i) => {
             const t = TONE[doc.state];
             return (
               <View key={doc.id}>
