@@ -213,21 +213,23 @@ export default function SignIn() {
         {error ? <Text className="text-error text-[13px] mb-2">{error}</Text> : null}
 
         {/*
-          Points at support rather than the reset flow, which is built and
-          working but has no email provider configured to deliver the code. A
-          "Forgot password?" link that silently sends nothing is the worst of
-          both: the endpoint answers 200 by design, so the screen would show
-          success and the customer would wait for an email that never comes.
+          This pointed at the help centre for as long as there was no way to
+          deliver a code: the endpoint answers 200 whether or not an email goes
+          out, so a working-looking link would have left people waiting for
+          something that never arrived.
 
-          Restore the /forgot-password route the day RESEND_API_KEY is set.
+          Restored now that Resend's DNS records are published and delivery is
+          confirmed. If codes ever stop arriving again, send this back to
+          '/help' rather than leaving a button that silently does nothing —
+          that failure is invisible from the customer's side.
         */}
         <Pressable
-          onPress={() => router.push('/help')}
+          onPress={() => router.push({ pathname: '/forgot-password', params: { role: actor } })}
           accessibilityRole="button"
           className="self-start py-2"
         >
           <Text className="text-pink-600 text-[15px] font-semibold">
-            Forgot password? Contact support
+            Forgot password?
           </Text>
         </Pressable>
 

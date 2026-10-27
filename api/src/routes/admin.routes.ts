@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 import { Router } from 'express';
 import { z } from 'zod';
 
-import { badRequest, conflict, forbidden, notFound, unauthorized } from '@/lib/errors';
+import { AppError, badRequest, conflict, forbidden, notFound, unauthorized } from '@/lib/errors';
 import { signToken } from '@/lib/jwt';
 import { formatNaira, riderPayout } from '@/lib/money';
 import { hashPassword } from '@/lib/password';
@@ -1286,7 +1286,12 @@ const adminResetSchema = z.object({
     .string()
     .email('Enter the account email.')
     .transform((v) => v.trim().toLowerCase()),
-  role: z.enum(['customer', 'rider', 'vendor']),
+  /* 'provider' belongs here for the same reason the other three do: a
+     service provider signs in with an email and a password and can be
+     locked out of it. It was missing because this list is maintained by
+     hand and providers were added to the system later - the same gap
+     that has bitten the order-type and actor lists before. */
+  role: z.enum(['customer', 'rider', 'vendor', 'provider']),
 });
 
 /**
@@ -1309,7 +1314,12 @@ adminRouter.post(
     const { email, role } = req.body as z.infer<typeof adminResetSchema>;
 
     const account =
-      role === 'vendor'
+      role === 'provider'
+        ? await prisma.serviceProvider.findUnique({
+            where: { email },
+            select: { id: true, name: true },
+          })
+        : role === 'vendor'
         ? await prisma.vendor.findUnique({ where: { email }, select: { id: true, name: true } })
         : role === 'rider'
           ? await prisma.rider.findUnique({
@@ -1324,12 +1334,18 @@ adminRouter.post(
     // Named plainly. This endpoint is behind an admin token, so there is no
     // account-enumeration concern to protect against — and an operator on a
     // call needs to know the address is simply wrong.
-    if (!account) throw notFound(`No ${role} account uses ${email}`);
+    /* notFound() appends " not found." to whatever it is given, which
+       turned this into "No vendor account uses x@y.com not found." on the
+       operator's screen. The sentence is already complete, so it is built
+       here instead. */
+    if (!account) throw new AppError(404, 'NOT_FOUND', `No ${role} account uses ${email}.`);
 
     const password = generatePassword();
     const passwordHash = await hashPassword(password);
 
-    if (role === 'vendor') {
+    if (role === 'provider') {
+      await prisma.serviceProvider.update({ where: { email }, data: { passwordHash } });
+    } else if (role === 'vendor') {
       await prisma.vendor.update({ where: { email }, data: { passwordHash } });
     } else if (role === 'rider') {
       await prisma.rider.update({ where: { email }, data: { passwordHash } });

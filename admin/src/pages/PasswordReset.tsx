@@ -20,7 +20,7 @@ import { api, ApiError } from '@/lib/api';
  * Retire this page when RESEND_API_KEY is set. It is a workaround, and every day
  * it exists is a day someone's password travels down a phone line.
  */
-type Role = 'customer' | 'rider' | 'vendor';
+type Role = 'customer' | 'rider' | 'vendor' | 'provider';
 
 type ResetResult = { email: string; role: Role; name: string; password: string };
 
@@ -70,8 +70,10 @@ export function PasswordReset() {
         />
 
         <label className="mt-4 block text-sm font-medium text-ink mb-1.5">Account type</label>
-        <div className="flex gap-2">
-          {(['customer', 'rider', 'vendor'] as Role[]).map((r) => (
+        {/* Wraps: a fourth pill overflows the row on a phone, and ops reads
+            this screen on a phone while on a call. */}
+        <div className="flex flex-wrap gap-2">
+          {(['customer', 'rider', 'vendor', 'provider'] as Role[]).map((r) => (
             <button
               key={r}
               type="button"
