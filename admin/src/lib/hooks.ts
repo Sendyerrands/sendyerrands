@@ -178,7 +178,13 @@ export function useVendors() {
 export function useUpdateVendor() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (vars: { id: string; isVerified?: boolean; canBid?: boolean; isOpen?: boolean }) => {
+    mutationFn: (vars: {
+      id: string;
+      isVerified?: boolean;
+      canBid?: boolean;
+      isOpen?: boolean;
+      email?: string;
+    }) => {
       const { id, ...patch } = vars;
       return api<Vendor>(`/admin/vendors/${id}`, { method: 'PATCH', body: patch });
     },

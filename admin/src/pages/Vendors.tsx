@@ -2,7 +2,7 @@ import { Fragment, useState } from 'react';
 
 import { AccountActions, SuspendedPill } from '@/components/AccountActions';
 import { PageHeader } from '@/components/Layout';
-import { Button, Card, EmptyState, ErrorState, Loading, Modal, Pill } from '@/components/ui';
+import { Button, Card, EmptyState, ErrorState, Loading, Modal, Pill, inputClass } from '@/components/ui';
 import {
   useDeleteProduct,
   useUpdateVendor,
@@ -28,6 +28,7 @@ export function Vendors() {
   const deleteProduct = useDeleteProduct();
 
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [emailFor, setEmailFor] = useState<Vendor | null>(null);
   const [pending, setPending] = useState<Pending>(null);
 
   // Whichever mutation last failed is the one worth showing.
@@ -87,6 +88,20 @@ export function Vendors() {
                             <SuspendedPill suspendedAt={v.suspendedAt} />
                           </div>
                           <p className="text-[12px] text-muted">{v.tags.slice(0, 3).join(' · ')}</p>
+                          {/* No email means this vendor cannot sign in at all and
+                              cannot be sent a reset code, which looked from the
+                              outside like password reset being broken. */}
+                          {v.email ? (
+                            <p className="text-[12px] text-muted">{v.email}</p>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setEmailFor(v)}
+                              className="text-[12px] font-semibold text-error underline"
+                            >
+                              No login email — set one
+                            </button>
+                          )}
                           {v.suspendedReason ? (
                             <p className="text-[12px] text-error">{v.suspendedReason}</p>
                           ) : null}
@@ -152,6 +167,8 @@ export function Vendors() {
           )}
         </Card>
       </div>
+
+      <SetVendorEmail vendor={emailFor} onClose={() => setEmailFor(null)} />
 
       <ConfirmDelete
         pending={pending}
@@ -283,5 +300,70 @@ function Toggle({
         />
       </button>
     </td>
+  );
+}
+
+/**
+ * Gives a vendor a login address.
+ *
+ * Vendors are created by approving an application, and VendorApplication has
+ * never collected an email — approval copied the phone and nothing else. So a
+ * vendor existed, showed up here, and could neither sign in nor be sent a
+ * reset code. Approval now carries the applicant's address when there is one;
+ * this is for the vendors already created without one, and for applications
+ * that came from the website with nobody signed in.
+ */
+function SetVendorEmail({ vendor, onClose }: { vendor: Vendor | null; onClose: () => void }) {
+  const update = useUpdateVendor();
+  const [email, setEmail] = useState('');
+
+  if (!vendor) return null;
+
+  return (
+    <Modal
+      open
+      title={`Login email for ${vendor.name}`}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={update.isPending}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() =>
+              update.mutate(
+                { id: vendor.id, email: email.trim().toLowerCase() },
+                { onSuccess: () => { setEmail(''); onClose(); } }
+              )
+            }
+            loading={update.isPending}
+            disabled={!email.includes('@')}
+          >
+            Save
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3 text-sm">
+        <p className="text-body">
+          This is the address {vendor.name} signs in with. They claim the account by using
+          <strong> Forgot password</strong> on the vendor portal, so no temporary password is ever
+          sent or has to be changed later.
+        </p>
+        <input
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          type="email"
+          autoFocus
+          placeholder="owner@example.com"
+          className={inputClass}
+        />
+        {update.isError ? (
+          <p className="rounded-lg bg-error/10 px-3 py-2 text-error">
+            {update.error instanceof Error ? update.error.message : 'That did not save.'}
+          </p>
+        ) : null}
+      </div>
+    </Modal>
   );
 }

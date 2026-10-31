@@ -524,6 +524,20 @@ export type MarketplaceRequest = {
 
 // ── rider ───────────────────────────────────────────────────
 export const riderApi = {
+  /**
+   * Hands a already-uploaded Cloudinary URL to the API, which files it against
+   * the rider and moves them into the review queue once all five are in.
+   *
+   * The binary goes straight to Cloudinary from the device (see uploads.ts);
+   * only the resulting URL comes through here.
+   */
+  submitDocument: (type: string, fileUrl: string, token: string) =>
+    api.post<{ id: string; type: string; status: string }>(
+      '/rider/documents',
+      { type, fileUrl },
+      token
+    ),
+
   me: (token: string) =>
     api.get<
       ApiRider & {

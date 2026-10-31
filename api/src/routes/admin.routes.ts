@@ -539,7 +539,18 @@ adminRouter.get(
   })
 );
 
-/** PATCH /admin/vendors/:id — approve a vendor and its bidding eligibility. */
+/**
+ * PATCH /admin/vendors/:id — verification, bidding, opening hours, and the
+ * login address.
+ *
+ * `email` is here because without it a vendor cannot be reached at all. A
+ * vendor signs in with an email and claims the account through the
+ * password-reset flow, but nothing in the pipeline ever put an address on the
+ * row: VendorApplication does not collect one, and approval copies the phone
+ * and nothing else. The result was vendors who existed, appeared in the
+ * dashboard, and could never sign in or be sent a reset code. Ops sets it here
+ * and the reset flow does the rest.
+ */
 adminRouter.patch(
   '/vendors/:id',
   validate(
@@ -547,12 +558,31 @@ adminRouter.patch(
       isVerified: z.boolean().optional(),
       canBid: z.boolean().optional(),
       isOpen: z.boolean().optional(),
+      email: z
+        .string()
+        .email('Enter a valid email address.')
+        .transform((v) => v.trim().toLowerCase())
+        .optional(),
     })
   ),
   asyncHandler(async (req, res) => {
+    const body = req.body as { email?: string; isVerified?: boolean; canBid?: boolean; isOpen?: boolean };
+
+    // Vendor.email is unique, and a clash here is an ops mistake worth naming
+    // rather than a 500 from the database.
+    if (body.email) {
+      const taken = await prisma.vendor.findUnique({
+        where: { email: body.email },
+        select: { id: true, name: true },
+      });
+      if (taken && taken.id !== req.params.id) {
+        throw conflict(`${taken.name} already uses ${body.email}.`);
+      }
+    }
+
     const vendor = await prisma.vendor.update({
       where: { id: req.params.id! },
-      data: req.body,
+      data: body,
     });
     res.json({ data: vendor });
   })
@@ -626,6 +656,8 @@ adminRouter.post(
 
     const application = await prisma.vendorApplication.findUnique({
       where: { id: req.params.id! },
+      // The applicant carries the only email in this chain; see vendor.create.
+      include: { applicant: { select: { email: true } } },
     });
     if (!application) throw notFound('Application');
 
@@ -672,6 +704,16 @@ adminRouter.post(
           state: application.state,
           // Doubles as the login for /phone?role=vendor.
           phone: application.phone,
+          /**
+           * The applicant's own address, so the vendor has a way in.
+           *
+           * VendorApplication does not collect an email of its own, so this is
+           * the only one available, and without it approval mints an account
+           * that can never sign in or be sent a reset code. Null when the
+           * application came from the website with nobody signed in — ops then
+           * sets it on the vendor by hand.
+           */
+          email: application.applicant?.email ?? null,
           tags: [application.category],
           isVerified: false,
           isOpen: false,

@@ -333,6 +333,8 @@ export type Vendor = {
   id: string;
   name: string;
   slug: string;
+  /** The login. Null means this vendor cannot sign in or be sent a reset. */
+  email: string | null;
   tags: string[];
   area: string | null;
   rating: number;

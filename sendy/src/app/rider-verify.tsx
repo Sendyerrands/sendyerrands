@@ -1,11 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Badge, Card, Divider } from '@/components/ui/atoms';
 import { Button } from '@/components/ui/Button';
 import { Screen, ScreenHeader, StickyBar } from '@/components/ui/Screen';
+import { riderApi } from '@/lib/api/endpoints';
 import { useRiderMe } from '@/lib/api/hooks';
+import { pickImages, uploadImage } from '@/lib/api/uploads';
+import { useApp } from '@/store/app';
 import { colors } from '@/lib/theme';
 
 type DocState = 'approved' | 'review' | 'rejected' | 'missing';
@@ -51,6 +56,41 @@ const TONE: Record<DocState, { label: string; tone: 'success' | 'info' | 'error'
 export default function RiderVerify() {
   const router = useRouter();
   const { data: rider } = useRiderMe();
+  const { token } = useApp();
+  const queryClient = useQueryClient();
+
+  /** Which document is mid-upload, so only that row shows a spinner. */
+  const [busy, setBusy] = useState<DocumentType | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+
+  /**
+   * Pick, upload, file.
+   *
+   * All of this existed already and was simply never connected: the API has
+   * had POST /rider/documents since the rider flow shipped, uploads.ts has had
+   * a 'rider-documents' folder, and these rows were Pressable with no onPress.
+   * Riders tapped them, nothing happened, and there was no way to tell that
+   * from a failed upload.
+   */
+  async function upload(type: DocumentType) {
+    if (!token || busy) return;
+    setFailed(null);
+    try {
+      const [asset] = await pickImages(1);
+      // No asset means they backed out of the picker or refused permission;
+      // neither is an error worth shouting about.
+      if (!asset) return;
+
+      setBusy(type);
+      const url = await uploadImage(asset, 'rider-documents', token);
+      await riderApi.submitDocument(type, url, token);
+      await queryClient.invalidateQueries({ queryKey: ['rider-me'] });
+    } catch (err) {
+      setFailed(err instanceof Error ? err.message : 'That upload did not go through.');
+    } finally {
+      setBusy(null);
+    }
+  }
 
   const docs = DOCS.map((d) => ({
     ...d,
@@ -102,7 +142,15 @@ export default function RiderVerify() {
                 {i > 0 ? <Divider className="mx-4" /> : null}
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel={`${doc.label}, ${t.label}`}
+                  accessibilityLabel={
+                    doc.state === 'approved'
+                      ? `${doc.label}, approved`
+                      : `${doc.label}, ${t.label}. Tap to upload.`
+                  }
+                  // An approved document is not re-uploadable: replacing it
+                  // would quietly send the rider back into review.
+                  disabled={doc.state === 'approved' || busy !== null}
+                  onPress={() => upload(doc.id)}
                   className="flex-row items-center px-4 py-3.5 active:bg-surface"
                 >
                   <View
@@ -120,35 +168,75 @@ export default function RiderVerify() {
                     <Text className="text-ink text-[15px] font-medium">{doc.label}</Text>
                     <Text className="text-muted text-[13px] mt-0.5">{doc.hint}</Text>
                   </View>
-                  <Badge label={t.label} tone={t.tone} icon={t.icon} />
+                  {busy === doc.id ? (
+                    <ActivityIndicator size="small" color={colors.pink[600]} />
+                  ) : (
+                    <Badge label={t.label} tone={t.tone} icon={t.icon} />
+                  )}
                 </Pressable>
               </View>
             );
           })}
         </Card>
 
+        {failed ? (
+          <Text className="text-error text-[13px] mt-2.5">{failed}</Text>
+        ) : null}
+
         {/* bank */}
         <Text className="text-muted text-[13px] font-semibold mt-6 mb-2.5">PAYOUT ACCOUNT</Text>
-        <Card className="flex-row items-center p-4">
-          <View className="w-10 h-10 rounded-full bg-pink-50 items-center justify-center mr-3">
-            <Ionicons name="card-outline" size={18} color={colors.pink[600]} />
-          </View>
-          <View className="flex-1">
-            <Text className="text-ink text-[15px] font-semibold">GTBank ••4471</Text>
-            <Text className="text-muted text-[13px] mt-0.5">Emeka Adeyemi</Text>
-          </View>
-          <Text className="text-pink-600 text-[13px] font-semibold">Change</Text>
-        </Card>
+        {/*
+          The rider's own account, or an honest blank.
+
+          This card was hardcoded to "GTBank ••4471 / Emeka Adeyemi" — a name
+          from the mock fixtures — so every rider on the platform was shown a
+          stranger's bank details as their own payout destination, and the
+          "Change" label did nothing. The real editor has always been at
+          /rider/payout-account; this now shows what is actually on file and
+          opens it.
+        */}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={
+            rider?.bankAccountNo
+              ? `Payout account ${rider.bankName}. Tap to change.`
+              : 'No payout account yet. Tap to add one.'
+          }
+          onPress={() => router.push('/rider/payout-account')}
+        >
+          <Card className="flex-row items-center p-4">
+            <View className="w-10 h-10 rounded-full bg-pink-50 items-center justify-center mr-3">
+              <Ionicons name="card-outline" size={18} color={colors.pink[600]} />
+            </View>
+            <View className="flex-1">
+              {rider?.bankAccountNo ? (
+                <>
+                  <Text className="text-ink text-[15px] font-semibold">
+                    {rider.bankName} ••{rider.bankAccountNo.slice(-4)}
+                  </Text>
+                  <Text className="text-muted text-[13px] mt-0.5">
+                    {rider.bankAccountName ?? 'Name not confirmed yet'}
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Text className="text-ink text-[15px] font-semibold">No payout account yet</Text>
+                  <Text className="text-muted text-[13px] mt-0.5">
+                    Add one, or your earnings have nowhere to go.
+                  </Text>
+                </>
+              )}
+            </View>
+            <Text className="text-pink-600 text-[13px] font-semibold">
+              {rider?.bankAccountNo ? 'Change' : 'Add'}
+            </Text>
+          </Card>
+        </Pressable>
       </ScrollView>
 
       <StickyBar>
-        {/*
-          Document upload is not wired yet — KYC provider is still undecided, so
-          verification is done by the ops team from the dashboard. The button
-          said "Upload guarantor form" and only navigated away, which reads as
-          a broken upload rather than a feature that does not exist. Saying so
-          costs nothing and stops riders retrying it.
-        */}
+        {/* Uploading happens on the rows themselves, so this is just the way
+            back. */}
         <Button
           title="Back to dashboard"
           icon="arrow-back"
