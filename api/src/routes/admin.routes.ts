@@ -11,6 +11,7 @@ import { hashPassword } from '@/lib/password';
 import { prisma } from '@/lib/prisma';
 import { asyncHandler, validate } from '@/middleware';
 import { requireAuth } from '@/middleware/auth';
+import { sendEmail, vendorApprovedEmail } from '@/services/email';
 import { transitionOrder } from '@/services/orders';
 import {
   PAYOUT_HOLD_HOURS,
@@ -602,7 +603,12 @@ adminRouter.get(
       // should be the one ops sees, not the one that arrived this morning.
       orderBy: [{ status: 'asc' }, { createdAt: 'asc' }],
       include: {
-        applicant: { select: { id: true, firstName: true, lastName: true, phone: true } },
+        // email included because it becomes the vendor's login, so the
+        // operator must be able to see it before approving rather than
+        // discovering afterwards that there wasn't one.
+        applicant: {
+          select: { id: true, firstName: true, lastName: true, phone: true, email: true },
+        },
         vendor: { select: { id: true, name: true, slug: true } },
       },
       take: 200,
@@ -649,10 +655,28 @@ adminRouter.post(
     z.object({
       decision: z.enum(['APPROVE', 'REJECT']),
       note: z.string().max(500).optional(),
+      /**
+       * The address the new vendor signs in with.
+       *
+       * Optional because the applicant's own address is used when there is one.
+       * It exists for the case that produced unenterable accounts: an
+       * application whose applicant row is gone (User deletion sets
+       * applicantId null), where there is otherwise no email anywhere in the
+       * chain.
+       */
+      email: z
+        .string()
+        .email('Enter a valid email address.')
+        .transform((v) => v.trim().toLowerCase())
+        .optional(),
     })
   ),
   asyncHandler(async (req, res) => {
-    const { decision, note } = req.body as { decision: 'APPROVE' | 'REJECT'; note?: string };
+    const { decision, note, email } = req.body as {
+      decision: 'APPROVE' | 'REJECT';
+      note?: string;
+      email?: string;
+    };
 
     const application = await prisma.vendorApplication.findUnique({
       where: { id: req.params.id! },
@@ -661,7 +685,21 @@ adminRouter.post(
     });
     if (!application) throw notFound('Application');
 
-    if (application.status !== 'PENDING') {
+    /**
+     * An application leaves PENDING once. There is exactly one exception, and a
+     * real row was stuck in it.
+     *
+     * VendorApplication.vendorId is `onDelete: SetNull`, so deleting a vendor
+     * leaves its application APPROVED pointing at nothing. The guard below then
+     * refused to approve it ever again, and nothing else creates a vendor from
+     * an application — so one click on the Vendors page permanently destroyed
+     * the only record that could rebuild the shop. Approving again is the
+     * repair, and it is safe precisely because vendorId is null: there is no
+     * live vendor to duplicate.
+     */
+    const vendorWasDeleted = application.status === 'APPROVED' && application.vendorId === null;
+
+    if (application.status !== 'PENDING' && !(vendorWasDeleted && decision === 'APPROVE')) {
       throw conflict(`This application was already ${application.status.toLowerCase()}.`);
     }
 
@@ -672,6 +710,36 @@ adminRouter.post(
       });
       res.json({ data: updated });
       return;
+    }
+
+    /**
+     * The address this vendor will sign in with — ops's, or the applicant's.
+     *
+     * Approval stops here when there is neither, instead of creating the vendor
+     * with `email: null` as it used to. Every way into a vendor account is
+     * keyed on this column: `/auth/password/forgot` looks the vendor up by
+     * email, and so does the dashboard's own password-reset tool. A vendor
+     * without one is not "a vendor missing a field", it is an account that no
+     * person and no operator can ever enter or repair — and approval was
+     * creating them silently.
+     */
+    const loginEmail = email ?? application.applicant?.email ?? null;
+
+    if (!loginEmail) {
+      throw badRequest(
+        `${application.businessName} has no email to sign in with — the applicant's account no longer exists. Enter the owner's address to approve.`
+      );
+    }
+
+    // Vendor.email is unique. Caught here so it reads as the ops decision it is
+    // rather than a constraint violation that loses the review.
+    const emailTaken = await prisma.vendor.findUnique({
+      where: { email: loginEmail },
+      select: { id: true, name: true },
+    });
+
+    if (emailTaken) {
+      throw conflict(`${emailTaken.name} already signs in with ${loginEmail}.`);
     }
 
     const slug = await uniqueVendorSlug(application.businessName);
@@ -704,16 +772,9 @@ adminRouter.post(
           state: application.state,
           // Doubles as the login for /phone?role=vendor.
           phone: application.phone,
-          /**
-           * The applicant's own address, so the vendor has a way in.
-           *
-           * VendorApplication does not collect an email of its own, so this is
-           * the only one available, and without it approval mints an account
-           * that can never sign in or be sent a reset code. Null when the
-           * application came from the website with nobody signed in — ops then
-           * sets it on the vendor by hand.
-           */
-          email: application.applicant?.email ?? null,
+          // Guaranteed non-null by the check above: a vendor is never created
+          // without a way to sign in.
+          email: loginEmail,
           tags: [application.category],
           isVerified: false,
           isOpen: false,
@@ -729,7 +790,29 @@ adminRouter.post(
       return [vendor, app] as const;
     });
 
-    res.json({ data: updated });
+    /**
+     * Tell the vendor. This was the whole gap: approval created an account and
+     * notified nobody, so the owner learned of it only if an operator
+     * remembered to ring them, and from their side the application just went
+     * quiet.
+     *
+     * Deliberately after the transaction and deliberately non-fatal. The vendor
+     * exists and is correct whether or not Resend accepts the message, and
+     * rolling an approval back over a bounced email would be the worse failure.
+     * `emailSent` goes in the response so the operator is told to phone them
+     * instead of finding out a week later.
+     */
+    const mail = vendorApprovedEmail({
+      businessName: application.businessName,
+      loginEmail,
+    });
+    const sent = await sendEmail({ to: loginEmail, ...mail });
+
+    if (!sent.ok) {
+      console.error(`[admin] vendor approval email failed for ${loginEmail}: ${sent.reason}`);
+    }
+
+    res.json({ data: { ...updated, loginEmail, emailSent: sent.ok } });
   })
 );
 

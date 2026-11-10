@@ -24,6 +24,7 @@ import type {
   Service,
   Vendor,
   ProviderApplication,
+  DecidedApplication,
   VendorApplication,
   VendorApplicationStatus,
   VendorCatalogue,
@@ -358,9 +359,15 @@ export function useVendorApplications(status?: VendorApplicationStatus) {
 export function useDecideApplication() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (vars: { id: string; decision: 'APPROVE' | 'REJECT'; note?: string }) => {
+    mutationFn: (vars: {
+      id: string;
+      decision: 'APPROVE' | 'REJECT';
+      note?: string;
+      /** Only sent when ops had to supply one; see DecidedApplication. */
+      email?: string;
+    }) => {
       const { id, ...body } = vars;
-      return api<VendorApplication>(`/admin/vendor-applications/${id}/decide`, {
+      return api<DecidedApplication>(`/admin/vendor-applications/${id}/decide`, {
         method: 'POST',
         body,
       });

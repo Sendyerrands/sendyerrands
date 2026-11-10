@@ -383,8 +383,30 @@ export type VendorApplication = {
   status: VendorApplicationStatus;
   createdAt: string;
   reviewedAt: string | null;
-  applicant: { id: string; firstName: string; lastName: string; phone: string } | null;
+  /**
+   * The applicant's email is the address the vendor will sign in with, so
+   * the review screen has to show it before anyone approves.
+   */
+  applicant: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    phone: string;
+    email: string | null;
+  } | null;
   vendor: { id: string; name: string; slug: string } | null;
+};
+
+/**
+ * What approving returns, on top of the application itself.
+ *
+ * `emailSent` false means the vendor exists but was not told — the
+ * operator has to ring them, and the screen says so rather than leaving it
+ * to be discovered when the shop never opens.
+ */
+export type DecidedApplication = VendorApplication & {
+  loginEmail?: string;
+  emailSent?: boolean;
 };
 
 /**

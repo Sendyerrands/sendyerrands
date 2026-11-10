@@ -134,14 +134,51 @@ function ReviewModal({
   const decide = useDecideApplication();
   const [note, setNote] = useState('');
 
+  /**
+   * The address this vendor will sign in with.
+   *
+   * Pre-filled from the applicant, and editable, because the applicant's
+   * account is not always the shop owner's — someone's assistant applies, or
+   * the customer row has since been deleted and there is no email in the chain
+   * at all. Approval now refuses without one rather than creating a vendor
+   * nobody can ever sign into, which is what it used to do.
+   */
+  const [email, setEmail] = useState('');
+  const applicantEmail = application?.applicant?.email ?? null;
+  const loginEmail = (email.trim() || applicantEmail || '').toLowerCase();
+
+  /** Set once an approval comes back, so the result can be reported honestly. */
+  const [outcome, setOutcome] = useState<{ email: string; sent: boolean } | null>(null);
+
+  function close() {
+    setNote('');
+    setEmail('');
+    setOutcome(null);
+    decide.reset();
+    onClose();
+  }
+
   function submit(decision: 'APPROVE' | 'REJECT') {
     if (!application) return;
     decide.mutate(
-      { id: application.id, decision, ...(note.trim() ? { note: note.trim() } : {}) },
       {
-        onSuccess: () => {
-          setNote('');
-          onClose();
+        id: application.id,
+        decision,
+        ...(note.trim() ? { note: note.trim() } : {}),
+        // Only when it differs from the applicant's: sending it always would
+        // make a typo in a pre-filled box overwrite a perfectly good address.
+        ...(decision === 'APPROVE' && email.trim() ? { email: loginEmail } : {}),
+      },
+      {
+        onSuccess: (result) => {
+          if (decision === 'REJECT') return close();
+          /* Approval holds the modal open to report whether the vendor was
+             actually told. Closing straight away is what let a silent email
+             failure pass for success. */
+          setOutcome({
+            email: result.loginEmail ?? loginEmail,
+            sent: result.emailSent === true,
+          });
         },
       }
     );
@@ -150,23 +187,60 @@ function ReviewModal({
   return (
     <Modal
       open={application !== null}
-      title="Review application"
-      onClose={onClose}
+      title={outcome ? 'Approved' : 'Review application'}
+      onClose={close}
       footer={
-        <>
-          <Button variant="secondary" onClick={onClose} disabled={decide.isPending}>
-            Cancel
-          </Button>
-          <Button variant="danger" onClick={() => submit('REJECT')} loading={decide.isPending}>
-            Reject
-          </Button>
-          <Button onClick={() => submit('APPROVE')} loading={decide.isPending}>
-            Approve
-          </Button>
-        </>
+        outcome ? (
+          <Button onClick={close}>Done</Button>
+        ) : (
+          <>
+            <Button variant="secondary" onClick={close} disabled={decide.isPending}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={() => submit('REJECT')} loading={decide.isPending}>
+              Reject
+            </Button>
+            <Button
+              onClick={() => submit('APPROVE')}
+              loading={decide.isPending}
+              /* No email, no approval. The server refuses too — this just says
+                 so before the click rather than after it. */
+              disabled={!loginEmail}
+            >
+              Approve
+            </Button>
+          </>
+        )
       }
     >
-      {application === null ? null : (
+      {application === null ? null : outcome ? (
+        /* What happened, in the two cases that differ for the operator. */
+        <div className="space-y-3 text-sm">
+          <p className="rounded-lg bg-success/10 px-3 py-2 text-[13px] text-success">
+            <strong>{application.businessName}</strong> is now a vendor, signing in with{' '}
+            <strong>{outcome.email}</strong>.
+          </p>
+          {outcome.sent ? (
+            <p className="text-body">
+              We emailed them their sign-in address and how to set a password. They have no password
+              yet — they create one through <strong>Forgot password</strong> on the vendor sign-in,
+              which is the only way in by design, so no temporary password exists to be leaked or
+              changed later.
+            </p>
+          ) : (
+            <p className="rounded-lg bg-error/10 px-3 py-2 text-[13px] text-error">
+              <strong>The email did not go out.</strong> The vendor exists and is correct, but
+              nobody has told them. Ring them on {application.phone}, tell them to use{' '}
+              <strong>Forgot password</strong> on the vendor sign-in with {outcome.email}, and check
+              the API logs for why the send failed.
+            </p>
+          )}
+          <p className="text-[12px] text-muted">
+            They are unverified and closed, so customers cannot see them. Add listings and a
+            delivery fee on the Vendors page, then switch those on.
+          </p>
+        </div>
+      ) : (
         <>
           {/* Said out loud because the result surprises people: approving does
               not put the vendor in the app. It creates them unverified and
@@ -203,6 +277,42 @@ function ReviewModal({
               </>
             ) : null}
           </dl>
+
+          {/*
+            The single most consequential field on this screen, and it used to
+            not be here at all. Vendor.email is what every way in is keyed on:
+            the reset flow finds the vendor by it, and so does the dashboard's
+            own password-reset tool. Approving without one created an account
+            that no person and no operator could ever enter.
+          */}
+          <Field
+            label="Sign-in email"
+            hint={
+              applicantEmail
+                ? `Leave blank to use the applicant's address, ${applicantEmail}.`
+                : 'The applicant account is gone, so there is no address on file. Enter the owner\u2019s.'
+            }
+          >
+            <input
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              type="email"
+              placeholder={applicantEmail ?? 'owner@example.com'}
+              className={inputClass}
+            />
+          </Field>
+
+          {!loginEmail ? (
+            <p className="mb-4 mt-2 rounded-lg bg-error/10 px-3 py-2 text-[13px] text-error">
+              Enter an email before approving. Without one the vendor cannot sign in and cannot be
+              sent a reset code, and there is no way to repair it afterwards except by hand.
+            </p>
+          ) : (
+            <p className="mb-4 mt-2 text-[12px] text-muted">
+              They will sign in with <strong className="text-ink">{loginEmail}</strong> and be
+              emailed how to set a password.
+            </p>
+          )}
 
           <Field label="Note (optional)">
             <textarea
