@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { notFound } from '@/lib/errors';
 import { prisma } from '@/lib/prisma';
+import { PUBLIC_ACCOUNT_OMIT } from '@/lib/public-reads';
 import { asyncHandler, validate } from '@/middleware';
 
 export const vendorsRouter = Router();
@@ -16,6 +17,28 @@ const listQuery = z.object({
   limit: z.coerce.number().min(1).max(50).default(20),
   cursor: z.string().optional(),
 });
+
+/**
+ * The picture a shop is shown with.
+ *
+ * `Vendor.coverUrl` is read all over the app and is writable nowhere: no
+ * endpoint accepts it, the vendor portal has no control for it, the app's
+ * vendor screens have none and the ops dashboard only declares it in a type.
+ * So it is null for every vendor that exists, and browse rendered every shop
+ * as a flat coloured placeholder — a storefront with a real catalogue behind
+ * it looked like an empty one.
+ *
+ * Until a vendor can actually upload a cover, one of their own product photos
+ * is a truer picture of the shop than a grey box. The oldest is used rather
+ * than the newest on purpose: a cover that silently changes every time a
+ * vendor lists a new item is its own small bug, and this is a stopgap, not a
+ * feature pretending to be one. A stored `coverUrl` always wins, so building
+ * the real control later needs no change here.
+ */
+function coverFor(vendor: { coverUrl: string | null; products?: { imageUrl: string | null }[] }) {
+  if (vendor.coverUrl) return vendor.coverUrl;
+  return vendor.products?.find((p) => p.imageUrl)?.imageUrl ?? null;
+}
 
 /** GET /vendors — the Home rails and the category listing both read from here. */
 vendorsRouter.get(
@@ -34,6 +57,22 @@ vendorsRouter.get(
             : [{ isOpen: 'desc' as const }, { rating: 'desc' as const }];
 
     const vendors = await prisma.vendor.findMany({
+      // Without this the whole row goes out, hash and sign-in address
+      // included, to anyone who asks. See src/lib/public-reads.ts.
+      omit: PUBLIC_ACCOUNT_OMIT,
+      /* One row, one column, per vendor — enough to stand in for a cover
+         without dragging whole catalogues into a browse query. Not filtered on
+         `inStock`: a sold-out item's photo is still a fair picture of the
+         shop, and filtering it out would hand a placeholder back to exactly
+         the vendor who had sold everything. */
+      include: {
+        products: {
+          where: { imageUrl: { not: null } },
+          orderBy: { createdAt: 'asc' },
+          take: 1,
+          select: { imageUrl: true },
+        },
+      },
       where: {
         /**
          * Customers only ever see verified vendors.
@@ -69,8 +108,18 @@ vendorsRouter.get(
     const hasMore = vendors.length > q.limit;
     const page = hasMore ? vendors.slice(0, q.limit) : vendors;
 
+    /* `products` was only ever a vehicle for the cover, and it is a single
+       stub row rather than a catalogue. Dropping it keeps the browse payload
+       the shape clients already expect — ApiVendor.products means "the whole
+       catalogue" on the detail route, and handing back a one-item version of
+       it here would be a quiet lie. */
+    const withCovers = page.map(({ products, ...v }) => ({
+      ...v,
+      coverUrl: coverFor({ coverUrl: v.coverUrl, products }),
+    }));
+
     res.json({
-      data: page,
+      data: withCovers,
       meta: { hasMore, nextCursor: hasMore ? page[page.length - 1]?.id : null },
     });
   })
@@ -83,6 +132,9 @@ vendorsRouter.get(
     const slug = req.params.slug!;
 
     const vendor = await prisma.vendor.findFirst({
+      // As in the list above: a storefront is public, its owner's credentials
+      // are not. See src/lib/public-reads.ts.
+      omit: PUBLIC_ACCOUNT_OMIT,
       // Suspended reads as gone, not as a storefront with an error on it:
       // the 404 below is the honest answer for a vendor ops has pulled.
       where: { suspendedAt: null, OR: [{ slug }, { id: slug }] },
@@ -101,6 +153,8 @@ vendorsRouter.get(
     res.json({
       data: {
         ...vendor,
+        // Free here: the catalogue is already loaded for the page itself.
+        coverUrl: coverFor(vendor),
         sections,
       },
     });

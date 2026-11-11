@@ -132,6 +132,15 @@ function ListingEditor({
   // Naira in the field, kobo on the wire — the conversion happens once, here.
   const [price, setPrice] = useState('');
   const [section, setSection] = useState('');
+  /**
+   * Whether this item also sits on the cross-vendor Marketplace shelf.
+   *
+   * The API has accepted this field all along and defaults it to false, but
+   * nothing could ever send it — not this screen, not the web portal, not the
+   * ops dashboard — so the Marketplace was permanently empty on both the app
+   * and the website while vendors had catalogues sitting right there.
+   */
+  const [isMarketplace, setIsMarketplace] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [localImage, setLocalImage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -146,6 +155,7 @@ function ListingEditor({
     setDescription(product?.description ?? '');
     setPrice(product ? String(product.priceKobo / 100) : '');
     setSection(product?.section ?? '');
+    setIsMarketplace(product?.isMarketplace ?? false);
     setImageUrl(product?.imageUrl ?? null);
     setLocalImage(null);
     setError(null);
@@ -176,6 +186,10 @@ function ListingEditor({
       description: description.trim() || undefined,
       priceKobo: nairaPrice * 100,
       section: section.trim() || undefined,
+      /* Always sent, never omitted: the API schema defaults it to false, so
+         leaving it out of an edit would quietly delist an item every time its
+         price or photo changed. */
+      isMarketplace,
       ...(imageUrl ? { imageUrl } : {}),
     };
 
@@ -252,6 +266,29 @@ function ListingEditor({
             placeholder="Popular, Rice & Grains, Drinks…"
             helper="Groups this with similar items on your page."
           />
+
+          {/*
+            Off by default for a new listing, deliberately. Your shop page
+            always shows everything you sell; the Marketplace is a separate
+            shelf shoppers browse across every vendor at once, so putting an
+            item on it is a decision to compete there — not something that
+            should happen to a vendor who never asked.
+          */}
+          <View className="flex-row items-start mt-2">
+            <View className="flex-1 pr-3">
+              <Text className="text-ink text-[15px] font-semibold">Also list on Marketplace</Text>
+              <Text className="text-muted text-[12.5px] mt-0.5 leading-[17px]">
+                Shoppers browsing all vendors at once will see this item. It stays on your
+                shop page either way.
+              </Text>
+            </View>
+            <Switch
+              value={isMarketplace}
+              onValueChange={setIsMarketplace}
+              accessibilityLabel="Also list on Marketplace"
+              trackColor={{ false: colors.hairline, true: colors.pink[600] }}
+            />
+          </View>
 
           {error ? <Text className="text-error text-[14px] mt-1">{error}</Text> : null}
 

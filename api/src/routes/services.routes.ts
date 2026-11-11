@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { badRequest, conflict, notFound } from '@/lib/errors';
 import { prisma } from '@/lib/prisma';
+import { PUBLIC_ACCOUNT_OMIT } from '@/lib/public-reads';
 import { deliveryCode, orderReference } from '@/lib/reference';
 import { asyncHandler, validate } from '@/middleware';
 import { requireAuth } from '@/middleware/auth';
@@ -55,6 +56,9 @@ servicesRouter.get(
       typeof req.query.state === 'string' && req.query.state !== 'All' ? req.query.state : undefined;
 
     const providers = await prisma.serviceProvider.findMany({
+      // Browsing providers needs no account, which is exactly why the row
+      // cannot go out whole. See src/lib/public-reads.ts.
+      omit: PUBLIC_ACCOUNT_OMIT,
       where: {
         isAvailable: true,
         /* A suspended account is not shown to customers. `suspendedAt` is
@@ -109,6 +113,7 @@ servicesRouter.get(
   '/providers/:slug',
   asyncHandler(async (req, res) => {
     const provider = await prisma.serviceProvider.findUnique({
+      omit: PUBLIC_ACCOUNT_OMIT,
       where: { slug: req.params.slug! },
       include: {
         /* Cheapest first, so the list reads as a ladder. Inactive tiers are
@@ -249,7 +254,15 @@ servicesRouter.post(
           },
         },
       },
-      include: { serviceDetail: { include: { provider: true, package: true } } },
+      /* `provider: true` pulled the provider's whole row into the booking
+         response, so every customer who booked was handed that provider's
+         bcrypt hash and sign-in address. Nested reads need the rule as much as
+         top-level ones do. */
+      include: {
+        serviceDetail: {
+          include: { provider: { omit: PUBLIC_ACCOUNT_OMIT }, package: true },
+        },
+      },
     });
 
     res.status(201).json({
