@@ -11,7 +11,7 @@ import { hashPassword } from '@/lib/password';
 import { prisma } from '@/lib/prisma';
 import { asyncHandler, validate } from '@/middleware';
 import { requireAuth } from '@/middleware/auth';
-import { sendEmail, vendorApprovedEmail } from '@/services/email';
+import { sendEmail, vendorApprovedEmail, vendorNeedsPhotoEmail } from '@/services/email';
 import { transitionOrder } from '@/services/orders';
 import {
   PAYOUT_HOLD_HOURS,
@@ -584,8 +584,48 @@ adminRouter.patch(
     const vendor = await prisma.vendor.update({
       where: { id: req.params.id! },
       data: body,
+      include: {
+        _count: { select: { products: { where: { imageUrl: { not: null } } } } },
+      },
     });
-    res.json({ data: vendor });
+
+    /**
+     * Verifying a shop that browse will still hide is the moment to say so.
+     *
+     * Browse requires one photographed listing (see GET /vendors), so ops can
+     * flip verified, see it succeed, and leave a vendor who has been told they
+     * are live but cannot find themselves anywhere. That gap is how this area
+     * keeps failing: the state is correct and nobody is informed.
+     *
+     * Only on the transition into verified, and only when there is genuinely
+     * nothing to show — so editing a verified vendor's delivery fee does not
+     * send it again. Non-fatal and after the write, for the same reason as the
+     * approval mail: the vendor's state is right whether or not Resend accepts
+     * the message.
+     */
+    let photoReminderSent: boolean | undefined;
+
+    if (body.isVerified === true && vendor._count.products === 0 && vendor.email) {
+      const mail = vendorNeedsPhotoEmail({
+        businessName: vendor.name,
+        loginEmail: vendor.email,
+      });
+      const sent = await sendEmail({ to: vendor.email, ...mail });
+      photoReminderSent = sent.ok;
+      if (!sent.ok) {
+        console.error(`[admin] photo reminder failed for ${vendor.email}: ${sent.reason}`);
+      }
+    }
+
+    const { _count, ...plain } = vendor;
+    res.json({
+      data: plain,
+      /* Named so the dashboard can say "verified, but still hidden until they
+         add a photo" rather than reporting a plain success. */
+      ...(photoReminderSent === undefined
+        ? {}
+        : { hiddenUntilPhoto: true, photoReminderSent }),
+    });
   })
 );
 

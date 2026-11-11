@@ -135,12 +135,13 @@ function ListingEditor({
   /**
    * Whether this item also sits on the cross-vendor Marketplace shelf.
    *
-   * The API has accepted this field all along and defaults it to false, but
-   * nothing could ever send it — not this screen, not the web portal, not the
-   * ops dashboard — so the Marketplace was permanently empty on both the app
-   * and the website while vendors had catalogues sitting right there.
+   * On by default. The API accepted this field all along but nothing could
+   * send it — not this screen, not the web portal, not the ops dashboard — so
+   * the Marketplace stayed empty while vendors had catalogues sitting right
+   * there. A vendor adding stock wants customers, so reaching the widest shelf
+   * is the sensible default and opting out is one tap.
    */
-  const [isMarketplace, setIsMarketplace] = useState(false);
+  const [isMarketplace, setIsMarketplace] = useState(true);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [localImage, setLocalImage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -155,7 +156,8 @@ function ListingEditor({
     setDescription(product?.description ?? '');
     setPrice(product ? String(product.priceKobo / 100) : '');
     setSection(product?.section ?? '');
-    setIsMarketplace(product?.isMarketplace ?? false);
+    // A new listing starts listed; an existing one keeps whatever it has.
+    setIsMarketplace(product?.isMarketplace ?? true);
     setImageUrl(product?.imageUrl ?? null);
     setLocalImage(null);
     setError(null);
@@ -268,11 +270,11 @@ function ListingEditor({
           />
 
           {/*
-            Off by default for a new listing, deliberately. Your shop page
-            always shows everything you sell; the Marketplace is a separate
-            shelf shoppers browse across every vendor at once, so putting an
-            item on it is a decision to compete there — not something that
-            should happen to a vendor who never asked.
+            On by default. Your shop page always shows everything you sell; the
+            Marketplace is the wider shelf shoppers browse across every vendor
+            at once, and a vendor adding stock is after customers. Turning it
+            off is one tap, and it is the same switch and the same catalogue as
+            the web portal — an item added in either place behaves the same.
           */}
           <View className="flex-row items-start mt-2">
             <View className="flex-1 pr-3">

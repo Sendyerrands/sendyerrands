@@ -35,7 +35,21 @@ const productSchema = z.object({
    * name corrected and was stuck with the picture forever.
    */
   imageUrl: z.string().url().nullable().optional(),
-  isMarketplace: z.boolean().default(false),
+  /**
+   * Listed on the cross-vendor Marketplace unless the vendor opts out.
+   *
+   * This defaulted to false and nothing could send it, so the Marketplace was
+   * permanently empty while vendors had full catalogues. Defaulting to true
+   * reverses the burden: a vendor who adds stock is reaching for customers, and
+   * the shelf that reaches the most of them should not require finding a
+   * checkbox first. Opting out is one tick, on both the app and the portal.
+   *
+   * It also makes the two front ends agree by construction. A listing added on
+   * the phone and one added on the website land in the same place, which is
+   * what a vendor already assumes is happening — there is one catalogue behind
+   * both.
+   */
+  isMarketplace: z.boolean().default(true),
   inStock: z.boolean().default(true),
 });
 

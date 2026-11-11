@@ -84,6 +84,26 @@ vendorsRouter.get(
          * flips when a vendor is genuinely ready to take orders.
          */
         isVerified: true,
+        /**
+         * A shop with no photographed listing is not shown, however verified.
+         *
+         * The isVerified flag above was meant to be this guard, but it is a
+         * switch ops flips by hand, and a vendor was sitting in browse today
+         * verified, open and holding nothing at all — a storefront a customer
+         * could tap into and find empty. A rule that depends on remembering is
+         * not a rule, so the catalogue itself decides.
+         *
+         * Photo rather than merely a product, because browse IS pictures: a
+         * shop renders as a cover and a name, and a listing with no image gives
+         * the cover nothing to be. The two are the same condition — this filter
+         * is what guarantees coverFor() below always finds something.
+         *
+         * Not applied to GET /vendors/:slug on purpose. A vendor following a
+         * link to their own shop to see how it looks should find it, not a 404,
+         * and a hidden shop is unreachable from browse anyway. It is hidden,
+         * not deleted.
+         */
+        products: { some: { imageUrl: { not: null } } },
         /* A suspended account is not shown to customers. `suspendedAt` is
            the only thing a suspension writes, so this filter is what makes it
            visible here - see src/lib/suspension.ts. */
