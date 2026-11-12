@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { PageHeader } from '@/components/Layout';
 import { Button, Card, EmptyState, ErrorState, Field, Loading, Modal, Pill, inputClass } from '@/components/ui';
 import { relative } from '@/lib/format';
+import { suggestEmail } from '@/lib/email-suggest';
 import { useDecideApplication, useVendorApplications } from '@/lib/hooks';
 import type { VendorApplication, VendorApplicationStatus } from '@/lib/types';
 
@@ -146,6 +147,17 @@ function ReviewModal({
   const [email, setEmail] = useState('');
   const applicantEmail = application?.applicant?.email ?? null;
   const loginEmail = (email.trim() || applicantEmail || '').toLowerCase();
+
+  /**
+   * A mistyped domain that happens to be registered — gmial.com, yaho.com —
+   * does not bounce and does not warn. It silently becomes the address this
+   * vendor signs in with and the one their password-reset codes are sent to,
+   * which makes it a stranger's inbox rather than a dead letter.
+   *
+   * It warns rather than blocks: an operator who knows the address is right
+   * must be able to approve anyway.
+   */
+  const emailTypo = suggestEmail(loginEmail);
 
   /** Set once an approval comes back, so the result can be reported honestly. */
   const [outcome, setOutcome] = useState<{ email: string; sent: boolean } | null>(null);
@@ -301,6 +313,18 @@ function ReviewModal({
               className={inputClass}
             />
           </Field>
+
+          {emailTypo ? (
+            <button
+              type="button"
+              onClick={() => setEmail(emailTypo)}
+              className="mb-4 mt-2 block w-full rounded-lg bg-warning/10 px-3 py-2 text-left text-[13px] text-warning"
+            >
+              <strong>Check this address.</strong> {loginEmail} looks mistyped — did you mean{' '}
+              <strong className="underline">{emailTypo}</strong>? Click to use it. A wrong domain
+              here is the address they sign in with and the one reset codes go to.
+            </button>
+          ) : null}
 
           {!loginEmail ? (
             <p className="mb-4 mt-2 rounded-lg bg-error/10 px-3 py-2 text-[13px] text-error">

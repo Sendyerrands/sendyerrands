@@ -255,3 +255,82 @@ export function vendorNeedsPhotoEmail(params: { businessName: string; loginEmail
 
   return { subject, text, html };
 }
+
+/**
+ * "Your sign-in address was corrected."
+ *
+ * A vendor registered with a mistyped domain — gmial.com rather than gmail.com
+ * — which is a real registered domain, so nothing bounced and nothing warned
+ * her. Correcting it in the database fixes the account but changes the thing
+ * she types to sign in, and the login screen's answer to a wrong email is "that
+ * email or password is not correct": true, useless, and indistinguishable from
+ * a forgotten password. Without this email she would simply find herself locked
+ * out of a shop she was in the middle of stocking.
+ *
+ * It states the password is unchanged, because the obvious guess on being
+ * refused is that the password is the problem, and a reset she does not need is
+ * the worst way to spend the next ten minutes.
+ */
+export function emailCorrectedEmail(params: {
+  businessName: string;
+  oldEmail: string;
+  newEmail: string;
+}) {
+  const { businessName, oldEmail, newEmail } = params;
+  const subject = `Your Sendy Errands sign-in email has been corrected`;
+
+  const text = [
+    `Hello,`,
+    ``,
+    `The email address on ${businessName} had a small typo in it — it was`,
+    `saved as ${oldEmail}, which is not a real address you own.`,
+    ``,
+    `We have corrected it to ${newEmail}, which is why this message`,
+    `has reached you.`,
+    ``,
+    `WHAT THIS MEANS FOR SIGNING IN`,
+    ``,
+    `  - Sign in with ${newEmail} from now on.`,
+    `  - Your password has NOT changed. Use the same one as before.`,
+    `  - Everything in your shop is exactly as you left it — your listings,`,
+    `    your photos and your orders are all untouched.`,
+    ``,
+    `You can sign in at https://sendyerrands.com/vendor/login.php or in the`,
+    `Sendy Errands app.`,
+    ``,
+    `If you have forgotten your password, use "Forgot password?" on the`,
+    `sign-in page and we will email a 6-digit code to this address.`,
+    ``,
+    `Sorry for the confusion. Reply to this email if anything is not working`,
+    `and a person will pick it up.`,
+  ].join('\n');
+
+  const html = `
+<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;color:#171717">
+  <h1 style="font-size:20px;margin:0 0 20px">Your sign-in email has been corrected</h1>
+  <p style="font-size:15px;line-height:22px;margin:0 0 20px">
+    The email address on <strong>${businessName}</strong> had a small typo in it. It was saved
+    as <span style="color:#6B7280;text-decoration:line-through">${oldEmail}</span>, which is not
+    a real address you own &mdash; we have corrected it to
+    <strong style="color:#E6297A">${newEmail}</strong>, which is why this has reached you.
+  </p>
+  <div style="background:#FFF5F9;border-radius:12px;padding:16px 18px;margin:0 0 20px">
+    <p style="font-size:15px;line-height:22px;margin:0 0 10px"><strong>Signing in from now on</strong></p>
+    <ul style="font-size:15px;line-height:23px;margin:0;padding-left:20px">
+      <li>Use <strong>${newEmail}</strong>.</li>
+      <li>Your password has <strong>not</strong> changed &mdash; the same one still works.</li>
+      <li>Your listings, photos and orders are all exactly as you left them.</li>
+    </ul>
+  </div>
+  <p style="font-size:15px;line-height:22px;margin:0 0 20px">
+    Sign in at <a href="https://sendyerrands.com/vendor/login.php" style="color:#E6297A">the vendor portal</a>
+    or in the Sendy Errands app. If you have forgotten your password, use
+    <strong>Forgot password?</strong> on the sign-in page and we will email a 6-digit code to this address.
+  </p>
+  <p style="font-size:13px;line-height:20px;color:#6B7280;margin:0">
+    Sorry for the confusion. Reply to this email if anything is not working and a person will pick it up.
+  </p>
+</div>`.trim();
+
+  return { subject, text, html };
+}

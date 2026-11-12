@@ -1,13 +1,14 @@
 import { useMutation } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Screen, ScreenHeader, StickyBar } from '@/components/ui/Screen';
 import { ApiError } from '@/lib/api/client';
 import { authApi, type Actor } from '@/lib/api/endpoints';
+import { suggestEmail } from '@/lib/email-suggest';
 import { useApp } from '@/store/app';
 
 /**
@@ -26,6 +27,14 @@ export default function ForgotPassword() {
 
   const { email, setEmail } = useApp();
   const [error, setError] = useState<string | null>(null);
+
+  /**
+   * A typo here is the quietest failure in the system: the endpoint answers
+   * identically whether or not the address has an account — deliberately, so
+   * it cannot be used to discover who has one — so a mistyped domain produces
+   * a confident "check your email" for a message that was never sent.
+   */
+  const emailFix = suggestEmail(email.trim());
 
   const request = useMutation({
     mutationFn: () => authApi.forgotPassword(email.trim(), actor),
@@ -63,6 +72,20 @@ export default function ForgotPassword() {
           autoComplete="email"
           autoFocus
         />
+        {emailFix ? (
+          /* Suggested, never applied for them. An address that genuinely is
+             unusual has to survive this screen untouched. */
+          <Pressable
+            onPress={() => setEmail(emailFix)}
+            accessibilityRole="button"
+            accessibilityLabel={`Use ${emailFix} instead`}
+            className="flex-row flex-wrap items-center mt-2"
+          >
+            <Text className="text-body text-[13px]">Did you mean </Text>
+            <Text className="text-pink-600 text-[13px] font-bold underline">{emailFix}</Text>
+            <Text className="text-body text-[13px]">?</Text>
+          </Pressable>
+        ) : null}
 
         {error ? <Text className="text-error text-[13px]">{error}</Text> : null}
       </View>

@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/Input';
 import { Screen, ScreenHeader, StickyBar } from '@/components/ui/Screen';
 import { ApiError } from '@/lib/api/client';
 import { authApi } from '@/lib/api/endpoints';
+import { suggestEmail } from '@/lib/email-suggest';
 import { legal } from '@/lib/links';
 import { openInApp } from '@/lib/open-in-app';
 import { colors } from '@/lib/theme';
@@ -47,6 +48,8 @@ export default function SignUp() {
   const asRider = role === 'rider';
 
   const { signIn, email, setEmail } = useApp();
+  /** A mistyped domain becomes the account identity, so it is caught here. */
+  const emailFix = suggestEmail(email.trim());
 
   const [first, setFirst] = useState('');
   const [last, setLast] = useState('');
@@ -119,6 +122,20 @@ export default function SignUp() {
           autoComplete="email"
           helper="You'll sign in with this."
         />
+        {emailFix ? (
+          /* Suggested, never applied for them. An address that genuinely is
+             unusual has to survive this screen untouched. */
+          <Pressable
+            onPress={() => setEmail(emailFix)}
+            accessibilityRole="button"
+            accessibilityLabel={`Use ${emailFix} instead`}
+            className="flex-row flex-wrap items-center mt-2"
+          >
+            <Text className="text-body text-[13px]">Did you mean </Text>
+            <Text className="text-pink-600 text-[13px] font-bold underline">{emailFix}</Text>
+            <Text className="text-body text-[13px]">?</Text>
+          </Pressable>
+        ) : null}
         <Input
           label="Phone number"
           value={phone}
