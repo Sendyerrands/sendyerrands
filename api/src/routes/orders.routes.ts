@@ -72,6 +72,24 @@ const packageSchema = z.object({
   dropoffAddress: z.string().min(4).max(240),
   dropoffPhone: z.string().min(10).max(20),
   size: z.enum(['SMALL', 'MEDIUM', 'LARGE', 'EXTRA_LARGE']).default('SMALL'),
+  /**
+   * What the parcel actually weighs, if the customer knows.
+   *
+   * The four sizes carry weight hints — "≤ 5 kg", "≤ 15 kg" — but the weight
+   * itself was never recorded, so a rider accepting a job knew only which of
+   * four buckets it fell in. A 6 kg parcel and a 14 kg one are both "Large",
+   * and the difference decides whether a bike can take it at all.
+   *
+   * Optional because plenty of people genuinely do not know, and forcing a
+   * number would only produce invented ones. Capped at 100kg: past that it is
+   * not an errand, and an unbounded field is how "5" becomes "500000" after a
+   * slipped keypress.
+   */
+  weightKg: z
+    .number()
+    .positive('Enter a weight greater than zero.')
+    .max(100, 'Anything over 100kg needs to be arranged with us directly.')
+    .optional(),
   contents: z.string().max(80).optional(),
   isFragile: z.boolean().default(false),
   notes: z.string().max(500).optional(),
@@ -360,6 +378,7 @@ ordersRouter.post(
             dropoffAddress: withState(body.dropoffAddress, body.destinationState),
             dropoffPhone: body.dropoffPhone,
             size: body.size,
+            weightKg: body.weightKg,
             contents: body.contents,
             isFragile: body.isFragile,
             notes: body.notes,

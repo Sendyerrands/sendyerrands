@@ -166,6 +166,7 @@ export type ApiRiderJob = {
   packageDetail?: {
     pickupName: string; pickupAddress: string;
     dropoffName: string; dropoffAddress: string; size: string;
+    weightKg?: number | null;
   } | null;
   errandDetail?: {
     task: string;
@@ -418,6 +419,9 @@ export function toRiderJob(j: ApiRiderJob): RiderJob {
      * the seller. What matters is which step it is waiting on.
      */
     paymentLabel: PAYMENT_LABEL[j.status] ?? (j.type === 'ERRAND' ? 'Unpaid' : 'Prepaid'),
+    // ?? undefined rather than passing null through: "not stated" and "nothing
+    // here" are the same thing to the card, and it already renders on absence.
+    weightKg: j.packageDetail?.weightKg ?? undefined,
     notes: j.errandDetail?.task ?? undefined,
   };
 }

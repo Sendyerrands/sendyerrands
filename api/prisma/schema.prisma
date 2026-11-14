@@ -181,40 +181,40 @@ enum AdminRole {
 // ─────────────────────────────────────────────── identity
 
 model User {
-  id                String   @id @default(cuid())
+  id                String    @id @default(cuid())
   /// The login identifier. Stored lowercased so "Ada@x.com" and "ada@x.com"
   /// cannot become two accounts holding two separate wallet balances.
-  email             String   @unique
+  email             String    @unique
   passwordHash      String
   /// Still required, but no longer a credential: a rider standing at the door
   /// needs a number to call, which an email address cannot replace.
-  phone             String   @unique // E.164, e.g. +2348031234567
+  phone             String    @unique // E.164, e.g. +2348031234567
   firstName         String
   lastName          String
-  walletBalanceKobo Int      @default(0)
-  referralCode      String   @unique
+  walletBalanceKobo Int       @default(0)
+  referralCode      String    @unique
   referredByCode    String?
-  isActive          Boolean  @default(true)
+  isActive          Boolean   @default(true)
   /// Set when ops suspends this account, and the single source of truth for
   /// whether it may still be used. Enforced in requireAuth on every request,
   /// not only at login: tokens last 30 days, so a check made only at the door
   /// would leave a suspended account working for a month.
-  suspendedAt     DateTime?
+  suspendedAt       DateTime?
   /// Why, in ops' own words. Shown to the account holder when they are turned
   /// away, so a suspension is not a silent failure they phone support about.
-  suspendedReason String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  suspendedReason   String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  addresses          Address[]
-  favourites         Favourite[]
-  notifications      Notification[]
-  orders             Order[]
-  requests           MarketplaceRequest[]
-  reviews            Review[]
-  supportRequests    SupportRequest[]
-  walletTxns         WalletTransaction[]
-  vendorApplications VendorApplication[]
+  addresses            Address[]
+  favourites           Favourite[]
+  notifications        Notification[]
+  orders               Order[]
+  requests             MarketplaceRequest[]
+  reviews              Review[]
+  supportRequests      SupportRequest[]
+  walletTxns           WalletTransaction[]
+  vendorApplications   VendorApplication[]
   providerApplications ProviderApplication[]
 
   @@map("users")
@@ -240,10 +240,10 @@ model Rider {
   /// whether it may still be used. Enforced in requireAuth on every request,
   /// not only at login: tokens last 30 days, so a check made only at the door
   /// would leave a suspended account working for a month.
-  suspendedAt     DateTime?
+  suspendedAt           DateTime?
   /// Why, in ops' own words. Shown to the account holder when they are turned
   /// away, so a suspension is not a silent failure they phone support about.
-  suspendedReason String?
+  suspendedReason       String?
   rating                Float        @default(5)
   completedJobs         Int          @default(0)
   // Payout destination — verified against Paystack before any transfer.
@@ -345,9 +345,9 @@ model Address {
 // ─────────────────────────────────────────────── vendors & catalog
 
 model Vendor {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   name            String
-  slug            String   @unique
+  slug            String    @unique
   tags            String[]
   /// Neighbourhood — "Lekki Phase 1". Shown to customers so they know where
   /// an item ships from; too granular to filter on.
@@ -355,33 +355,33 @@ model Vendor {
   /// The state this vendor trades in. Coarse enough to be a useful filter and
   /// the unit Nigerians actually think in when judging whether something is
   /// close. Defaults to Lagos because every existing vendor is there.
-  state           String   @default("Lagos")
+  state           String    @default("Lagos")
   /// The vendor login. Nullable, unlike User and Rider, because a vendor is
   /// never self-registered — it exists because ops approved an application, and
   /// may be created by hand before anyone has an address on file. Postgres
   /// allows many NULLs under a unique index, so the constraint still holds for
   /// every vendor that does have one.
-  email           String?  @unique
+  email           String?   @unique
   /// Null until the vendor sets one. Ops creates the account with an address
   /// only; the vendor claims it through the password-reset flow, so no
   /// temporary password is ever transmitted or has to be changed later.
   passwordHash    String?
   /// Contact number, kept for orders and dispatch. No longer a login.
-  phone           String?  @unique
-  rating          Float    @default(5)
-  ratingCount     Int      @default(0)
-  etaMinMinutes   Int      @default(25)
-  etaMaxMinutes   Int      @default(35)
-  deliveryFeeKobo Int      @default(130000)
+  phone           String?   @unique
+  rating          Float     @default(5)
+  ratingCount     Int       @default(0)
+  etaMinMinutes   Int       @default(25)
+  etaMaxMinutes   Int       @default(35)
+  deliveryFeeKobo Int       @default(130000)
   freeOverKobo    Int?
   discountLabel   String?
-  isVerified      Boolean  @default(false)
-  isOpen          Boolean  @default(true)
+  isVerified      Boolean   @default(false)
+  isOpen          Boolean   @default(true)
   opensAt         String? // "08:00"
   closesAt        String? // "22:00"
   coverUrl        String?
   // Vendors may bid on open marketplace requests (design.md §11).
-  canBid          Boolean  @default(false)
+  canBid          Boolean   @default(false)
   /// Set when ops suspends this account, and the single source of truth for
   /// whether it may still be used. Enforced in requireAuth on every request,
   /// not only at login: tokens last 30 days, so a check made only at the door
@@ -390,8 +390,8 @@ model Vendor {
   /// Why, in ops' own words. Shown to the account holder when they are turned
   /// away, so a suspension is not a silent failure they phone support about.
   suspendedReason String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   products     Product[]
   orders       Order[]
@@ -431,24 +431,24 @@ model Product {
 // ─────────────────────────────────────────────── orders
 
 model Order {
-  id         String       @id @default(cuid())
-  reference  String       @unique // "SND-8841"
-  type       OrderType
+  id             String       @id @default(cuid())
+  reference      String       @unique // "SND-8841"
+  type           OrderType
   // Defaulted so every existing row reads APP without a backfill, and so the
   // app's own create paths keep working untouched.
-  channel    OrderChannel @default(APP)
+  channel        OrderChannel @default(APP)
   /// Set only by the website's booking endpoint. A client that times out
   /// waiting for a reply has no way of knowing whether the order was created,
   /// and the customer's natural response is to submit again — so the same key
   /// arriving twice returns the original order instead of creating a sibling.
   /// Nullable and unique: Postgres allows any number of NULLs in a unique
   /// index, so every existing and app-created order is unaffected.
-  idempotencyKey String?   @unique
-  status     OrderStatus  @default(PENDING_PAYMENT)
-  customerId String
-  vendorId   String?
-  riderId    String?
-  addressId  String?
+  idempotencyKey String?      @unique
+  status         OrderStatus  @default(PENDING_PAYMENT)
+  customerId     String
+  vendorId       String?
+  riderId        String?
+  addressId      String?
 
   subtotalKobo    Int @default(0)
   deliveryFeeKobo Int @default(0)
@@ -473,22 +473,22 @@ model Order {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  customer      User                @relation(fields: [customerId], references: [id])
-  vendor        Vendor?             @relation(fields: [vendorId], references: [id])
-  rider         Rider?              @relation(fields: [riderId], references: [id])
-  address       Address?            @relation(fields: [addressId], references: [id])
-  items         OrderItem[]
-  events        OrderEvent[]
-  payments      Payment[]
-  errandDetail  ErrandDetail?
-  packageDetail PackageDetail?
-  serviceDetail ServiceDetail?
+  customer        User                @relation(fields: [customerId], references: [id])
+  vendor          Vendor?             @relation(fields: [vendorId], references: [id])
+  rider           Rider?              @relation(fields: [riderId], references: [id])
+  address         Address?            @relation(fields: [addressId], references: [id])
+  items           OrderItem[]
+  events          OrderEvent[]
+  payments        Payment[]
+  errandDetail    ErrandDetail?
+  packageDetail   PackageDetail?
+  serviceDetail   ServiceDetail?
   providerEarning ProviderEarning?
   request         MarketplaceRequest?
   review          Review?
   supportRequests SupportRequest[]
   earning         RiderEarning?
-  deliveryBids  DeliveryBid[]
+  deliveryBids    DeliveryBid[]
 
   @@index([customerId, status])
   @@index([riderId, status])
@@ -658,20 +658,20 @@ model ErrandDetail {
 /// the job is. Forcing both through one table would mean half its columns are
 /// meaningless on every row.
 model ServiceProvider {
-  id          String  @id @default(cuid())
-  name        String
-  slug        String  @unique
+  id           String   @id @default(cuid())
+  name         String
+  slug         String   @unique
   /// "Barber", "Cleaning", "Plumbing" — the browse filter, and the one thing a
   /// customer picks before anything else.
-  category    String
+  category     String
   /// What they do, in their own words, for the listing.
-  bio         String?
+  bio          String?
   /// Skills shown as chips: ["Fades", "Beard trim"].
-  tags        String[]
-  area        String?
-  state       String  @default("Lagos")
-  phone       String? @unique
-  email       String? @unique
+  tags         String[]
+  area         String?
+  state        String   @default("Lagos")
+  phone        String?  @unique
+  email        String?  @unique
   /// Null until they claim the account, exactly like Vendor — ops creates the
   /// provider first and the password-reset flow hands it over.
   passwordHash String?
@@ -683,8 +683,8 @@ model ServiceProvider {
   /// What Sendy charges to get them to the door, by how they travel. Held per
   /// provider rather than globally because a provider two streets away and one
   /// across the lagoon do not cost the same to send.
-  bikeFeeKobo Int     @default(100000)
-  carFeeKobo  Int     @default(250000)
+  bikeFeeKobo     Int     @default(100000)
+  carFeeKobo      Int     @default(250000)
   /// Some jobs cannot go by bike at all — a cleaner with a vacuum, a plumber
   /// with pipe. Set false and the bike option is not offered.
   canTravelByBike Boolean @default(true)
@@ -694,9 +694,9 @@ model ServiceProvider {
   typicalMinMinutes Int @default(30)
   typicalMaxMinutes Int @default(60)
 
-  isVerified  Boolean  @default(false)
+  isVerified      Boolean   @default(false)
   /// Accepting work right now. The provider's own toggle.
-  isAvailable Boolean  @default(true)
+  isAvailable     Boolean   @default(true)
   /// Set when ops suspends this account, and the single source of truth for
   /// whether it may still be used. Enforced in requireAuth on every request,
   /// not only at login: tokens last 30 days, so a check made only at the door
@@ -705,8 +705,8 @@ model ServiceProvider {
   /// Why, in ops' own words. Shown to the account holder when they are turned
   /// away, so a suspension is not a silent failure they phone support about.
   suspendedReason String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   /// Payout destination, verified against Paystack before any transfer.
   /// Identical in shape to Rider's, because it is the same job: Sendy now
@@ -752,18 +752,18 @@ enum PackageTier {
 /// to be listed - which is why this is a separate table rather than three
 /// columns on the provider.
 model ServicePackage {
-  id         String      @id @default(cuid())
-  providerId String
-  tier       PackageTier
+  id          String      @id @default(cuid())
+  providerId  String
+  tier        PackageTier
   /// Their own name for it, if they have one: "Fresh Cut", "Deep Clean".
   /// Falls back to the tier when empty.
-  name       String?
+  name        String?
   /// What is included, written by the provider at registration.
   description String
-  priceKobo  Int
-  isActive   Boolean  @default(true)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  priceKobo   Int
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
 
   provider ServiceProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
   bookings ServiceDetail[]
@@ -849,10 +849,10 @@ model ServiceDetail {
   providerId String
 
   /// What the customer wants done, in their words.
-  task    String
-  details String?
+  task     String
+  details  String?
   /// Where the provider is going.
-  address String
+  address  String
   landmark String?
 
   /// How they travel. Still asked, because a cleaner with a vacuum cannot ride
@@ -886,10 +886,10 @@ model ServiceDetail {
 
   /// What the customer expects to pay, before anyone has seen the job. Never
   /// charged — it is there so a provider can judge whether to accept.
-  budgetKobo Int?
+  budgetKobo      Int?
   /// What the provider says the job costs, once they know what it is. Paid to
   /// the provider directly; Sendy never touches it.
-  quotedKobo Int?
+  quotedKobo      Int?
   /// The customer's claim that they have paid the provider. Sendy cannot
   /// verify it — the money never passes through — so this is a timestamp and
   /// an optional receipt, which is most of what a dispute needs.
@@ -921,6 +921,10 @@ model PackageDetail {
   dropoffAddress String
   dropoffPhone   String
   size           ParcelSize @default(SMALL)
+  /// Stated by the customer, in kilograms. Null means they did not say.
+  /// Advisory only: it tells a rider whether a bike can take the job, and is
+  /// deliberately not a pricing input -- see the migration for why.
+  weightKg       Float?
   contents       String? // "Documents", "Food", "Electronics"
   isFragile      Boolean    @default(false)
   notes          String?
@@ -1008,10 +1012,10 @@ model Payment {
   /// cash over, why the amount differs from the order total.
   note              String?
 
-  order       Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order      Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
   /// SetNull, not Cascade: a staff member leaving must not delete the record of
   /// money the company took.
-  recordedBy  Admin? @relation(fields: [recordedByAdminId], references: [id], onDelete: SetNull)
+  recordedBy Admin? @relation(fields: [recordedByAdminId], references: [id], onDelete: SetNull)
 
   @@index([orderId])
   // The payments ledger reads newest-first, optionally filtered by status.
@@ -1133,33 +1137,31 @@ enum VendorApplicationStatus {
  */
 /**
  * Someone asking to become a service provider.
- *
  * Mirrors VendorApplication deliberately: a provider is onboarded the same way
  * a vendor is — they apply, ops reviews, and approval is what creates the
  * ServiceProvider row. Nobody self-registers into either.
- *
  * It reuses VendorApplicationStatus rather than declaring a second identical
  * enum. The three states are the same three states; renaming that type to
  * something neutral would be a migration touching live columns for a naming
  * improvement, which is not a trade worth making.
  */
 model ProviderApplication {
-  id       String @id @default(cuid())
+  id              String   @id @default(cuid())
   /// The name they trade under — "Kay Cuts", not necessarily a person's name.
-  name     String
+  name            String
   /// Barber, Cleaning, Plumbing. Free text, like ServiceProvider.category.
-  category String
-  area     String
-  state    String @default("Lagos")
-  phone    String
-  email    String?
+  category        String
+  area            String
+  state           String   @default("Lagos")
+  phone           String
+  email           String?
   /// What they do, in their own words — becomes the listing bio on approval.
-  bio      String?
+  bio             String?
   /// Skills, shown as chips on the listing.
-  tags     String[]
+  tags            String[]
   /// False where the kit will not fit on a bike. Asked at application time
   /// because it decides which arrival options a customer is ever offered.
-  canTravelByBike Boolean @default(true)
+  canTravelByBike Boolean  @default(true)
 
   /// The tiers they say they offer, as submitted. Held as JSON on the
   /// application rather than as ServicePackage rows because an application is
@@ -1168,8 +1170,8 @@ model ProviderApplication {
   packages Json?
 
   /// Why it was rejected, or an internal remark.
-  note     String?
-  status   VendorApplicationStatus @default(PENDING)
+  note   String?
+  status VendorApplicationStatus @default(PENDING)
 
   /// The signed-in customer who applied, so they can be told the outcome.
   applicantId String?
@@ -1321,10 +1323,10 @@ model SupportRequest {
   category SupportCategory @default(GENERAL)
   message  String
 
-  status SupportStatus @default(OPEN)
+  status       SupportStatus @default(OPEN)
   /// Set the first time ops opens it, so "nobody has looked at this yet" is
   /// visible at a glance rather than inferred from the status.
-  readAt DateTime?
+  readAt       DateTime?
   /// Where ops records what was done, since the conversation itself lives in
   /// WhatsApp or the mailbox.
   internalNote String?

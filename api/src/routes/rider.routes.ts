@@ -93,7 +93,12 @@ riderRouter.get(
         vendor: { select: { name: true, area: true } },
         address: { select: { line1: true, city: true, landmark: true } },
         errandDetail: { select: { task: true, pickupName: true, pickupAddress: true } },
-        packageDetail: { select: { pickupName: true, pickupAddress: true, dropoffName: true, dropoffAddress: true, size: true } },
+        packageDetail: {
+          // weightKg: the number that decides whether a bike can take the job at
+          // all. Without it the board shows a bucket -- 6kg and 14kg are both
+          // "Large" -- and a rider finds out on the doorstep.
+          select: { pickupName: true, pickupAddress: true, dropoffName: true, dropoffAddress: true, size: true, weightKg: true },
+        },
       },
       orderBy: sort === 'payout' ? { riderPayoutKobo: 'desc' } : { createdAt: 'asc' },
       take: 50,
@@ -133,7 +138,12 @@ riderRouter.get(
         vendor: { select: { name: true, area: true } },
         address: { select: { line1: true, city: true, landmark: true } },
         errandDetail: { select: { task: true, pickupName: true, pickupAddress: true } },
-        packageDetail: { select: { pickupName: true, pickupAddress: true, dropoffName: true, dropoffAddress: true, size: true } },
+        packageDetail: {
+          // weightKg: the number that decides whether a bike can take the job at
+          // all. Without it the board shows a bucket -- 6kg and 14kg are both
+          // "Large" -- and a rider finds out on the doorstep.
+          select: { pickupName: true, pickupAddress: true, dropoffName: true, dropoffAddress: true, size: true, weightKg: true },
+        },
       },
       // Active work first and oldest-first within it, so the job a customer has
       // been waiting longest for is the one at the top.

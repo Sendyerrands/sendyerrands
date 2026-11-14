@@ -114,6 +114,14 @@ export type RiderJob = {
   prepaid: boolean;
   /** What to show the rider about payment. Falls back to prepaid when absent. */
   paymentLabel?: string;
+  /**
+   * Kilograms, as the customer stated them. Undefined when they did not say.
+   *
+   * The parcel size alone is a bucket: 6kg and 14kg are both "Large", and the
+   * difference is whether this job fits on a bike. A rider should be able to
+   * see that before accepting rather than at the doorstep.
+   */
+  weightKg?: number;
   notes?: string;
 };
 

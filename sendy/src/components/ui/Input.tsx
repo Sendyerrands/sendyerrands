@@ -14,6 +14,7 @@ export function Input({
   error,
   icon,
   prefix,
+  suffix,
   keyboardType = 'default',
   autoFocus = false,
   multiline = false,
@@ -29,7 +30,11 @@ export function Input({
   error?: string;
   icon?: keyof typeof Ionicons.glyphMap;
   prefix?: string;
-  keyboardType?: 'default' | 'phone-pad' | 'number-pad' | 'email-address';
+  /** Trailing unit, e.g. "kg". The mirror of `prefix`, which already held "₦". */
+  suffix?: string;
+  /** 'decimal-pad' included because a weight is not a whole number — 'number-pad'
+   *  has no decimal point on iOS, which makes "2.5 kg" untypeable. */
+  keyboardType?: 'default' | 'phone-pad' | 'number-pad' | 'decimal-pad' | 'email-address';
   autoFocus?: boolean;
   multiline?: boolean;
   /** Renders a reveal toggle alongside the mask. */
@@ -85,6 +90,9 @@ export function Input({
           className="flex-1 text-ink text-[15px]"
           style={{ outlineStyle: 'none' } as never}
         />
+        {/* After the field, before the reveal toggle: a unit belongs next to
+            the number, and a password field has no unit to show. */}
+        {suffix ? <Text className="text-muted text-[15px] ml-2">{suffix}</Text> : null}
         {secureTextEntry ? (
           <Pressable
             onPress={() => setRevealed((r) => !r)}

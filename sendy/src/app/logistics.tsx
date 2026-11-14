@@ -42,6 +42,17 @@ export default function Logistics() {
   const [origin, setOrigin] = useState<string | null>(null);
   const [destination, setDestination] = useState<string | null>(null);
   const [size, setSize] = useState<ParcelSizeId>('small');
+  /**
+   * What it actually weighs, typed rather than inferred from the size tile.
+   *
+   * The four sizes only ever said "≤ 5 kg" or "≤ 15 kg", so a rider accepting
+   * the job knew the bucket and not the parcel: 6 kg and 14 kg are both
+   * "Large", and that difference decides whether a bike can carry it. Kept as a
+   * string because that is what a text field holds — "2." is a real state while
+   * someone is still typing, and coercing on every keystroke eats the decimal
+   * point as they reach for it.
+   */
+  const [weight, setWeight] = useState('');
   const [type, setType] = useState('Documents');
 
   const [pickupName, setPickupName] = useState('');
@@ -68,6 +79,19 @@ export default function Logistics() {
     dropoffAddress.trim().length >= 4 &&
     dropoffPhone.replace(/\D/g, '').length >= 10;
 
+  /** Null when blank or nonsense, so one check covers "not stated" and "not valid". */
+  const weightKg = (() => {
+    const n = Number(weight.replace(',', '.'));
+    return weight.trim() !== '' && Number.isFinite(n) && n > 0 && n <= 100 ? n : null;
+  })();
+
+  /* Only while they are mid-entry does a bad value matter — blank is fine, and
+     the server enforces the same bounds regardless of what this screen does. */
+  const weightError =
+    weight.trim() !== '' && weightKg === null
+      ? 'Enter a weight in kilograms, up to 100.'
+      : null;
+
   const submit = () => {
     if (!signedIn) return router.push('/signin');
 
@@ -80,6 +104,9 @@ export default function Logistics() {
         dropoffAddress: dropoffAddress.trim(),
         dropoffPhone: dropoffPhone.trim(),
         size: SIZE_ENUM[size],
+        // Omitted rather than sent as null when they did not say — the field is
+        // optional on the server and "not stated" is a fair answer.
+        ...(weightKg !== null ? { weightKg } : {}),
         contents: type,
         isFragile,
         ...(notes.trim() ? { notes: notes.trim() } : {}),
@@ -212,6 +239,25 @@ export default function Logistics() {
             );
           })}
         </ScrollView>
+
+        {/*
+          Sits under the size tiles because it refines the choice above rather
+          than replacing it: the tiles still set the price, and this tells the
+          rider what they are actually lifting.
+        */}
+        <Input
+          label="Weight (optional)"
+          value={weight}
+          onChangeText={setWeight}
+          placeholder="e.g. 7.5"
+          keyboardType="decimal-pad"
+          suffix="kg"
+          helper={
+            weightError ??
+            'If you know roughly what it weighs, say so — it tells your rider whether a bike can take it.'
+          }
+          error={weightError ?? undefined}
+        />
 
         {/* addresses */}
         <Card className="p-4 mb-6">
