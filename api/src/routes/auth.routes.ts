@@ -215,7 +215,63 @@ authRouter.post(
   validate(loginSchema),
   asyncHandler(async (req, res) => {
     const { email, password, role } = req.body as z.infer<typeof loginSchema>;
-    const wrong = () => unauthorized('That email or password is not correct.');
+
+    /**
+     * "It works on the website but not in the app."
+     *
+     * One address can own several accounts, and they are separate rows with
+     * separate passwords: a vendor who also orders as a customer has a vendor
+     * password and a customer password. Which one is checked is decided by
+     * `role`, and `role` is decided by the door — the app's sign-in screen
+     * defaults to customer, the vendor portal always sends vendor. So typing a
+     * perfectly correct vendor password into the app produces "that email or
+     * password is not correct", and from the outside that looks like the same
+     * details working in one place and failing in another.
+     *
+     * Five live addresses are in this position right now, one of them holding
+     * three different passwords across customer, rider and provider.
+     *
+     * Saying so costs nothing, because it is said ONLY when the password is
+     * right for the other account. An attacker who could trigger this message
+     * already holds that password and could have signed in with it directly,
+     * so it discloses nothing they did not bring with them. The generic
+     * message stays for every other failure, which is what keeps this endpoint
+     * from being a lookup for who has an account.
+     */
+    const ROLE_LABEL: Record<string, string> = {
+      customer: 'customer',
+      vendor: 'vendor',
+      rider: 'rider',
+      provider: 'service provider',
+    };
+
+    /** The password hash on this address for a role OTHER than the one asked for. */
+    const otherRoleHashes = async (): Promise<[string, string][]> => {
+      const lookups: [string, Promise<{ passwordHash: string | null } | null>][] = [];
+      if (role !== 'customer') lookups.push(['customer', prisma.user.findUnique({ where: { email }, select: { passwordHash: true } })]);
+      if (role !== 'vendor') lookups.push(['vendor', prisma.vendor.findUnique({ where: { email }, select: { passwordHash: true } })]);
+      if (role !== 'rider') lookups.push(['rider', prisma.rider.findUnique({ where: { email }, select: { passwordHash: true } })]);
+      if (role !== 'provider') lookups.push(['provider', prisma.serviceProvider.findUnique({ where: { email }, select: { passwordHash: true } })]);
+
+      const rows = await Promise.all(lookups.map(([, q]) => q));
+      return lookups
+        .map(([name], k) => [name, rows[k]?.passwordHash] as [string, string | null | undefined])
+        .filter((pair): pair is [string, string] => typeof pair[1] === 'string');
+    };
+
+    const wrong = async () => {
+      /* Only addresses that genuinely hold another account cost anything here.
+         An unknown address finds no rows and does no bcrypt work at all, so
+         this cannot be used to make failed logins expensive. */
+      for (const [name, hash] of await otherRoleHashes()) {
+        if (await verifyPassword(password, hash)) {
+          return unauthorized(
+            `Those details are for your ${ROLE_LABEL[name]} account, not your ${ROLE_LABEL[role] ?? role} one. Sign in as a ${ROLE_LABEL[name]} instead — one address can hold both, each with its own password.`
+          );
+        }
+      }
+      return unauthorized('That email or password is not correct.');
+    };
 
     if (role === 'provider') {
       const provider = await prisma.serviceProvider.findUnique({ where: { email } });
@@ -223,9 +279,9 @@ authRouter.post(
       // reveal which — identical to the vendor branch below.
       if (!provider?.passwordHash) {
         await burnTimingBudget(password);
-        throw wrong();
+        throw await wrong();
       }
-      if (!(await verifyPassword(password, provider.passwordHash))) throw wrong();
+      if (!(await verifyPassword(password, provider.passwordHash))) throw await wrong();
       /**
        * After the password check, never before. Telling someone their account
        * is suspended before they have proved it is theirs would confirm the
@@ -255,9 +311,9 @@ authRouter.post(
       // response time does not reveal which.
       if (!vendor?.passwordHash) {
         await burnTimingBudget(password);
-        throw wrong();
+        throw await wrong();
       }
-      if (!(await verifyPassword(password, vendor.passwordHash))) throw wrong();
+      if (!(await verifyPassword(password, vendor.passwordHash))) throw await wrong();
       assertLoginAllowed(vendor);
 
       return res.json({
@@ -279,9 +335,9 @@ authRouter.post(
       const rider = await prisma.rider.findUnique({ where: { email } });
       if (!rider) {
         await burnTimingBudget(password);
-        throw wrong();
+        throw await wrong();
       }
-      if (!(await verifyPassword(password, rider.passwordHash))) throw wrong();
+      if (!(await verifyPassword(password, rider.passwordHash))) throw await wrong();
       /**
        * This is new. A suspended rider could sign in and keep working: the
        * SUSPENDED status gated accepting a job via requireApprovedRider but
@@ -308,9 +364,9 @@ authRouter.post(
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
       await burnTimingBudget(password);
-      throw wrong();
+      throw await wrong();
     }
-    if (!(await verifyPassword(password, user.passwordHash))) throw wrong();
+    if (!(await verifyPassword(password, user.passwordHash))) throw await wrong();
     if (!user.isActive) throw unauthorized('That account has been disabled. Contact support.');
     // Carries the reason, which the isActive check above cannot.
     assertLoginAllowed(user);
