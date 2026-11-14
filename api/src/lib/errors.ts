@@ -14,8 +14,8 @@ export class AppError extends Error {
 export const badRequest = (msg: string, details?: unknown) =>
   new AppError(400, 'BAD_REQUEST', msg, details);
 
-export const unauthorized = (msg = 'You need to sign in to do that.') =>
-  new AppError(401, 'UNAUTHORIZED', msg);
+export const unauthorized = (msg = 'You need to sign in to do that.', details?: unknown) =>
+  new AppError(401, 'UNAUTHORIZED', msg, details);
 
 export const forbidden = (msg = "You don't have access to that.") =>
   new AppError(403, 'FORBIDDEN', msg);

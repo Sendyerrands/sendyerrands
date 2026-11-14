@@ -72,6 +72,21 @@ export default function SignIn() {
   const [error, setError] = useState<string | null>(null);
 
   /**
+   * The role the server says these details actually belong to.
+   *
+   * One address can hold a customer account and a vendor account, each with its
+   * own password, and this screen defaults to customer. Someone arriving with
+   * vendor details therefore fails against the wrong row and is told only that
+   * something is not correct. The portals list further down has always offered
+   * the switch, but it sits below the fold, after the error, and nobody reads
+   * past a rejection.
+   *
+   * Set only when the server has already verified the password against that
+   * other account, so it is never a guess.
+   */
+  const [switchTo, setSwitchTo] = useState<Actor | null>(null);
+
+  /**
    * Remembered sign-ins, debug builds only — see lib/dev-logins.
    * Every helper there is a no-op outside __DEV__, so this list is simply
    * always empty in a release build and nothing below renders.
@@ -89,7 +104,11 @@ export default function SignIn() {
   const valid = email.trim().length > 3 && password.length > 0;
 
   const login = useMutation({
-    mutationFn: () => authApi.login({ email: email.trim(), password, role: actor }),
+    mutationFn: () => {
+      // A fresh attempt, so last time's suggestion no longer describes it.
+      setSwitchTo(null);
+      return authApi.login({ email: email.trim(), password, role: actor });
+    },
     onSuccess: async (session) => {
       // Only ever after a login the server accepted, so a typo is never stored.
       await rememberLogin(email.trim(), password, actor);
@@ -99,8 +118,18 @@ export default function SignIn() {
       if (actor === 'rider') return router.replace('/rider');
       router.replace('/(tabs)/home');
     },
-    onError: (err) =>
-      setError(err instanceof ApiError ? err.message : 'Could not sign you in. Try again.'),
+    onError: (err) => {
+      setError(err instanceof ApiError ? err.message : 'Could not sign you in. Try again.');
+      const suggested =
+        err instanceof ApiError
+          ? (err.details as { signInAs?: string } | undefined)?.signInAs
+          : undefined;
+      setSwitchTo(
+        suggested === 'vendor' || suggested === 'rider' || suggested === 'provider' || suggested === 'customer'
+          ? suggested
+          : null
+      );
+    },
   });
 
   const label =
@@ -211,6 +240,30 @@ export default function SignIn() {
         />
 
         {error ? <Text className="text-error text-[13px] mb-2">{error}</Text> : null}
+
+        {/*
+          Immediately under the error, because that is where someone who has
+          just been refused is looking. setParams rather than a push: the email
+          and password they typed stay exactly where they are, so switching
+          costs one tap and no retyping.
+        */}
+        {switchTo ? (
+          <Pressable
+            onPress={() => {
+              setError(null);
+              setSwitchTo(null);
+              router.setParams({ role: switchTo });
+            }}
+            accessibilityRole="button"
+            className="flex-row items-center bg-pink-50 rounded-md px-3 py-3 mb-3"
+          >
+            <Ionicons name="swap-horizontal-outline" size={18} color={colors.pink[600]} />
+            <Text className="text-pink-700 text-[14px] font-semibold ml-2 flex-1">
+              Sign in as a {switchTo === 'provider' ? 'service provider' : switchTo} instead
+            </Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.pink[600]} />
+          </Pressable>
+        ) : null}
 
         {/*
           This pointed at the help centre for as long as there was no way to

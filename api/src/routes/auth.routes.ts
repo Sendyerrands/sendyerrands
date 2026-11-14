@@ -265,8 +265,13 @@ authRouter.post(
          this cannot be used to make failed logins expensive. */
       for (const [name, hash] of await otherRoleHashes()) {
         if (await verifyPassword(password, hash)) {
+          /* The role travels as data as well as prose. The sentence is for a
+             client that only prints messages -- the website, and app builds
+             already on phones -- while `signInAs` lets a client that knows
+             about it offer the switch as one tap, with what they typed kept. */
           return unauthorized(
-            `Those details are for your ${ROLE_LABEL[name]} account, not your ${ROLE_LABEL[role] ?? role} one. Sign in as a ${ROLE_LABEL[name]} instead — one address can hold both, each with its own password.`
+            `Those details are for your ${ROLE_LABEL[name]} account, not your ${ROLE_LABEL[role] ?? role} one. Sign in as a ${ROLE_LABEL[name]} instead — one address can hold both, each with its own password.`,
+            { signInAs: name }
           );
         }
       }
