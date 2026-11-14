@@ -41,6 +41,14 @@
       ],
       "expo-secure-store",
       [
+        "expo-image-picker",
+        {
+          "photosPermission": "Sendy Errands uses your photos so you can put a picture on a listing, an errand or a delivery receipt.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
+      [
         "expo-location",
         {
           "locationWhenInUsePermission": "Sendy Errands uses your location to fill in your delivery address so you don't have to type it."

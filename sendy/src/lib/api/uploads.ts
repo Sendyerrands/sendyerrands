@@ -30,10 +30,50 @@ type Signature = {
   uploadUrl: string;
 };
 
-/** Opens the library and returns picked assets, or [] if permission was refused. */
+/**
+ * Opens the library and returns the picked assets, or [] if the user cancelled.
+ *
+ * WHY THERE IS NO PERMISSION CHECK HERE ANY MORE
+ *
+ * This used to open with `requestMediaLibraryPermissionsAsync()` and return []
+ * when it came back ungranted. That is the bug people were reporting as "image
+ * upload is failing": the picker never opened at all. Nothing uploaded because
+ * nothing was ever chosen, and because [] is also what cancelling returns, every
+ * caller treated it as "they changed their mind" and said nothing. Tap Add a
+ * photo, nothing happens, no error — indistinguishable from the app ignoring you.
+ *
+ * The permission was never needed. The Expo SDK 57 docs state it outright, in
+ * the comment above their own example's call: "No permissions request is
+ * necessary for launching the image library." The one documented exception is
+ * picking VIDEOS on iOS, which this app never does — it is images only. Camera
+ * access is the case that genuinely always requires permission, and nothing here
+ * uses the camera.
+ *
+ * So the OS is left to ask for whatever it actually needs, when it needs it.
+ * Android's photo picker grants access to just the chosen item without any app
+ * permission at all, which is precisely the modern behaviour our own pre-check
+ * was overriding with a refusal.
+ */
 export async function pickImages(limit = 3): Promise<ImagePicker.ImagePickerAsset[]> {
-  const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (!permission.granted) return [];
+  /**
+   * Recover a pick Android threw away before asking for a new one.
+   *
+   * Per the SDK 57 docs: "Android system sometimes kills the MainActivity after
+   * the ImagePicker finishes" — and with it the chosen image. That is a
+   * low-memory device opening a second heavy activity, which describes a great
+   * many of the phones this app runs on. Without this the photo is simply gone
+   * and the screen looks like it ignored the pick.
+   *
+   * Resolves to null on every platform but Android, and to an
+   * ImagePickerErrorResult rather than a result if the pick itself failed —
+   * hence discriminating on `canceled` rather than trusting the shape.
+   */
+  if (Platform.OS === 'android') {
+    const pending = await ImagePicker.getPendingResultAsync();
+    if (pending && 'canceled' in pending && !pending.canceled && pending.assets?.length) {
+      return pending.assets.slice(0, limit);
+    }
+  }
 
   const result = await ImagePicker.launchImageLibraryAsync({
     mediaTypes: ['images'],
