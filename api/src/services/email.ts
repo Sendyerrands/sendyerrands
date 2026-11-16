@@ -123,6 +123,24 @@ export function passwordResetEmail(code: string, minutes: number) {
  * minutes and this email may be opened the next morning, so a code here would
  * be expired more often than not and would read as the flow being broken.
  */
+/**
+ * The "you are now a vendor" card that heads the approval email.
+ *
+ * Hosted rather than attached. An attachment rides along with every approval
+ * whether or not anyone looks at it, and a 1.2MB one — which is what the
+ * original artwork weighs — makes the message heavy enough to hurt delivery.
+ * Served from Cloudinary it is 54KB, resized to 600px, and costs nothing when
+ * a client declines to load it.
+ *
+ * Which clients will: Gmail shows remote images, plenty of others block them
+ * until asked. So the email is written to read completely without it. The card
+ * is decoration on top of a message that already says everything it needs to —
+ * nothing here is only in the picture, which is also why the alt text is a
+ * sentence rather than "banner".
+ */
+const VENDOR_APPROVED_BANNER =
+  'https://res.cloudinary.com/dz6kxumoo/image/upload/v1794823137/sendy/email/vendor-approved.jpg';
+
 export function vendorApprovedEmail(params: { businessName: string; loginEmail: string }) {
   const { businessName, loginEmail } = params;
   const subject = `${businessName} is approved on Sendy Errands`;
@@ -150,6 +168,13 @@ export function vendorApprovedEmail(params: { businessName: string; loginEmail: 
 
   const html = `
 <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;color:#171717">
+  <!-- width/height and max-width together: Outlook ignores CSS sizing on
+       images and would otherwise render this at its full 600px regardless of
+       the window, while a phone needs it to shrink. -->
+  <img src="${VENDOR_APPROVED_BANNER}"
+       alt="Congratulations — you are now a vendor on Sendy Errands"
+       width="600" height="600"
+       style="width:100%;max-width:472px;height:auto;display:block;margin:0 0 24px;border-radius:12px">
   <h1 style="font-size:20px;margin:0 0 20px">${businessName} is approved</h1>
   <p style="font-size:15px;line-height:22px;margin:0 0 20px">
     Welcome to Sendy Errands. Your sign-in email is
