@@ -30,6 +30,17 @@ export default function SendPackage() {
   const createPackage = useCreatePackage();
 
   const [size, setSize] = useState('small');
+  /**
+   * What it actually weighs, typed rather than inferred from the size tile.
+   *
+   * The same field exists on the interstate screen. It belongs on both, and
+   * putting it only there was a mistake: this is the screen Home leads to, so
+   * a same-city parcel — which is most of them — never got the chance to say.
+   * A string because that is what a text field holds; "2." is a real state
+   * mid-typing, and coercing every keystroke eats the decimal point as someone
+   * reaches for it.
+   */
+  const [weight, setWeight] = useState('');
   const [type, setType] = useState('Food');
 
   const [pickupName, setPickupName] = useState('');
@@ -65,6 +76,17 @@ export default function SendPackage() {
   // Changing the parcel size re-suggests, unless the customer has already
   // typed a number of their own — overwriting that would be rude.
   const [touchedOffer, setTouchedOffer] = useState(false);
+
+  /** Null when blank or nonsense, so one check covers "not stated" and "not valid". */
+  const weightKg = (() => {
+    const n = Number(weight.replace(',', '.'));
+    return weight.trim() !== '' && Number.isFinite(n) && n > 0 && n <= 100 ? n : null;
+  })();
+
+  /* Only a value they are part-way through typing can be wrong — blank is
+     fine, and the server enforces the same bounds whatever this screen does. */
+  const weightError =
+    weight.trim() !== '' && weightKg === null ? 'Enter a weight in kilograms, up to 100.' : null;
   useEffect(() => {
     if (!touchedOffer) setOffer(String(suggested));
   }, [suggested, touchedOffer]);
@@ -90,6 +112,9 @@ export default function SendPackage() {
         dropoffAddress: dropAddress.trim(),
         dropoffPhone: dropoffPhone.trim(),
         size: SIZE_ENUM[size] ?? 'SMALL',
+        // Left out rather than sent null when unstated: the field is optional
+        // on the server, and "they did not say" is a fair answer.
+        ...(weightKg !== null ? { weightKg } : {}),
         contents: type,
         isFragile,
         ...(notes.trim() ? { notes: notes.trim() } : {}),
@@ -195,6 +220,23 @@ export default function SendPackage() {
             );
           })}
         </ScrollView>
+
+        {/* Between the tiles and the price: it refines the parcel you just
+            picked, and it is not what the suggestion is computed from, so it
+            must not look like it moves the number. */}
+        <Input
+          label="Weight (optional)"
+          value={weight}
+          onChangeText={setWeight}
+          placeholder="e.g. 7.5"
+          keyboardType="decimal-pad"
+          suffix="kg"
+          helper={
+            weightError ??
+            'If you know roughly what it weighs, say so — it tells your rider whether a bike can take it.'
+          }
+          error={weightError ?? undefined}
+        />
 
         {/* Sits under the size picker because the size is what the suggestion
             is derived from — the number moves when you change the parcel, and

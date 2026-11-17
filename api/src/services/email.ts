@@ -139,7 +139,7 @@ export function passwordResetEmail(code: string, minutes: number) {
  * sentence rather than "banner".
  */
 const VENDOR_APPROVED_BANNER =
-  'https://res.cloudinary.com/dz6kxumoo/image/upload/v1794823137/sendy/email/vendor-approved.jpg';
+  'https://res.cloudinary.com/dz6kxumoo/image/upload/v1794875217/sendy/email/vendor-approved.jpg';
 
 export function vendorApprovedEmail(params: { businessName: string; loginEmail: string }) {
   const { businessName, loginEmail } = params;
