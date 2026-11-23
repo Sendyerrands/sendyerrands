@@ -10,6 +10,7 @@ import { Screen, ScreenHeader, StickyBar } from '@/components/ui/Screen';
 import { riderApi } from '@/lib/api/endpoints';
 import { useRiderMe } from '@/lib/api/hooks';
 import { pickImages, uploadImage } from '@/lib/api/uploads';
+import { openInApp } from '@/lib/open-in-app';
 import { useApp } from '@/store/app';
 import { colors } from '@/lib/theme';
 
@@ -24,12 +25,26 @@ type DocState = 'approved' | 'review' | 'rejected' | 'missing';
  * created a minute earlier that had uploaded nothing. The labels stay here
  * because they are copy; the state now comes from the rider's own record.
  */
+/**
+ * The blank guarantor form, for a rider who has not got one.
+ *
+ * This row asked for a "signed" form and opened a camera roll, with nothing
+ * anywhere telling a rider where to obtain the thing they were being asked to
+ * photograph. A rider raised exactly that. The upload stays a photo — a signed
+ * form is a physical document — but there is now somewhere to get it from.
+ *
+ * Served from the PHP site rather than bundled, so replacing it is a cPanel
+ * file drop and not an app release. The path is fixed for the same reason: the
+ * file behind it can change forever without this line changing.
+ */
+const GUARANTOR_FORM_URL = 'https://sendyerrands.com/docs/guarantor-form.pdf';
+
 const DOCS: { id: DocumentType; label: string; hint: string }[] = [
   { id: 'NIN', label: 'NIN slip or National ID', hint: 'Front side, all corners visible' },
   { id: 'LICENCE', label: "Rider's licence", hint: 'Must be valid for 3+ months' },
   { id: 'PHOTO', label: 'Passport photograph', hint: 'Plain background, no cap' },
   { id: 'VEHICLE_PAPERS', label: 'Vehicle papers', hint: 'Registration & proof of ownership' },
-  { id: 'GUARANTOR_FORM', label: 'Guarantor form', hint: 'Signed, with a valid ID attached' },
+  { id: 'GUARANTOR_FORM', label: 'Guarantor form', hint: 'Download it below, sign it, attach a valid ID' },
 ];
 
 type DocumentType = 'NIN' | 'LICENCE' | 'PHOTO' | 'VEHICLE_PAPERS' | 'GUARANTOR_FORM';
@@ -167,6 +182,27 @@ export default function RiderVerify() {
                   <View className="flex-1 pr-2">
                     <Text className="text-ink text-[15px] font-medium">{doc.label}</Text>
                     <Text className="text-muted text-[13px] mt-0.5">{doc.hint}</Text>
+                    {/*
+                      Only on this row: it is the one document a rider cannot
+                      simply photograph something they already own. Nested
+                      inside the row's Pressable, so it stops the tap from
+                      reaching the uploader — downloading the blank form and
+                      uploading the signed one are different intentions and
+                      must not share a tap target.
+                    */}
+                    {doc.id === 'GUARANTOR_FORM' ? (
+                      <Text
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          void openInApp(GUARANTOR_FORM_URL);
+                        }}
+                        suppressHighlighting
+                        accessibilityRole="link"
+                        className="text-pink-600 text-[13px] font-semibold mt-1.5"
+                      >
+                        Download the blank form
+                      </Text>
+                    ) : null}
                   </View>
                   {busy === doc.id ? (
                     <ActivityIndicator size="small" color={colors.pink[600]} />

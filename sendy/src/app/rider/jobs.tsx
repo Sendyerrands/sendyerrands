@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 
 import { JobCard } from '@/components/JobCard';
 import { Badge, Chip, EmptyState, Skeleton } from '@/components/ui/atoms';
@@ -39,6 +39,17 @@ export default function RiderJobs() {
 
   const online = riderMe?.isOnline ?? false;
 
+  /**
+   * Browsing is allowed, accepting is not, until ops approves the documents.
+   *
+   * The rule was only ever stated by the server, as a 403 AFTER the rider had
+   * found a job, read it and tapped Accept. That is the right answer far too
+   * late: a rider reported the accept button as "dormant", having no way to
+   * tell a refusal from a broken screen. Saying it up here costs one line and
+   * turns a dead end into a next step.
+   */
+  const canAccept = riderMe?.status === 'APPROVED';
+
   return (
     <Screen>
       <View className="flex-row items-center px-4 py-3">
@@ -59,6 +70,27 @@ export default function RiderJobs() {
           {riderMe?.zone ?? 'All areas'} · {jobs.length} {jobs.length === 1 ? 'job' : 'jobs'} open
         </Text>
       </View>
+
+      {!canAccept ? (
+        <Pressable
+          onPress={() => router.push('/rider-verify')}
+          accessibilityRole="button"
+          className="flex-row items-center bg-savings/10 rounded-md mx-4 mt-1 mb-2 px-3 py-3"
+        >
+          <Ionicons name="shield-checkmark-outline" size={18} color={colors.savings} />
+          <View className="flex-1 ml-2.5">
+            <Text className="text-savings text-[13px] font-semibold">
+              You can browse, but not accept yet
+            </Text>
+            <Text className="text-body text-[12px] mt-0.5 leading-[17px]">
+              {riderMe?.status === 'REJECTED'
+                ? 'One of your documents was refused. Tap to see which.'
+                : 'Your documents need approving first. Tap to upload them.'}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={colors.savings} />
+        </Pressable>
+      ) : null}
 
       <View className="py-2">
         <ScrollView

@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 
 import { Card, Divider, Skeleton } from '@/components/ui/atoms';
 import { Button, IconButton } from '@/components/ui/Button';
@@ -10,7 +10,7 @@ import { JOB_ROUTE, MapCanvas } from '@/components/ui/MapCanvas';
 import { Screen, StickyBar } from '@/components/ui/Screen';
 import { naira } from '@/lib/format';
 import { useQuery } from '@tanstack/react-query';
-import { useAcceptJob, useSubmitBid } from '@/lib/api/hooks';
+import { useAcceptJob, useRiderMe, useSubmitBid } from '@/lib/api/hooks';
 import { riderApi } from '@/lib/api/endpoints';
 import { toRiderJob } from '@/lib/api/mappers';
 import { useApp } from '@/store/app';
@@ -22,6 +22,13 @@ export default function RiderJobDetail() {
   const router = useRouter();
   const { token } = useApp();
   const accept = useAcceptJob();
+  const { data: riderMe } = useRiderMe();
+
+  /* Same rule the board states, repeated here because this screen is reachable
+     directly from a notification or a back-stack, not only by scrolling past
+     the banner. The server is still the authority — this only stops the rider
+     meeting it as a surprise. */
+  const canAccept = riderMe?.status === 'APPROVED';
   const bid = useSubmitBid(id!);
 
   const [bidding, setBidding] = useState(false);
@@ -258,6 +265,9 @@ export default function RiderJobDetail() {
               }
               iconRight="arrow-forward"
               loading={accept.isPending}
+              // Refused server-side regardless; disabling just makes the
+              // refusal visible before the tap rather than after it.
+              disabled={!canAccept || accept.isPending}
               // The job has to be claimed on the SERVER before the active screen
               // opens. Navigating first showed a rider "DELIVERING" a job that was
               // still on the open board for everyone else.
@@ -268,6 +278,20 @@ export default function RiderJobDetail() {
                 })
               }
             />
+
+            {!canAccept ? (
+              <Pressable
+                onPress={() => router.push('/rider-verify')}
+                accessibilityRole="button"
+                className="mt-2.5"
+              >
+                <Text className="text-savings text-[13px] text-center leading-[18px]">
+                  {riderMe?.status === 'REJECTED'
+                    ? 'A document was refused, so you cannot accept jobs yet. Tap to see which.'
+                    : 'You can accept jobs once your documents are approved. Tap to upload them.'}
+                </Text>
+              </Pressable>
+            ) : null}
 
             {/* Only where the fee is negotiable. A food order's delivery fee
                 belongs to the vendor and was quoted to the customer at
