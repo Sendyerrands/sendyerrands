@@ -125,14 +125,49 @@ export async function uploadImage(
   form.append('folder', sig.folder);
   form.append('signature', sig.signature);
 
-  const res = await fetch(sig.uploadUrl, { method: 'POST', body: form });
-  const json = (await res.json()) as { secure_url?: string; error?: { message?: string } };
+  /**
+   * Sent with XMLHttpRequest, not fetch, and that is the whole bug.
+   *
+   * SDK 52 replaced the global fetch with Expo's WinterCG one, and it cannot
+   * send React Native's file part. Its own converter says so --
+   * "uri is not supported for React Native's FormData" -- and throws
+   * "Unsupported FormDataPart implementation" on anything that is not a
+   * string, a Blob, or an object with .bytes(). A rider hit exactly that in
+   * red on the verification screen, and it had made every document upload in
+   * the app impossible.
+   *
+   * XMLHttpRequest is still React Native's own, and RN's FormData.getParts()
+   * is built for it, so {uri, name, type} streams from disk the way it always
+   * did. The alternative was reading the whole photo into JS memory as a Blob,
+   * which needs expo-file-system -- a native dependency, so a new store build
+   * rather than an update people get tonight.
+   */
+  const { status, body } = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', sig.uploadUrl);
+    // A photo over a Lagos mobile connection, not a JSON call. The default is
+    // no timeout at all, which leaves a spinner turning forever.
+    xhr.timeout = 90_000;
+    xhr.onload = () => resolve({ status: xhr.status, body: xhr.responseText });
+    xhr.onerror = () => reject(new Error('That upload could not reach us. Check your connection.'));
+    xhr.ontimeout = () => reject(new Error('That upload timed out. Try again on a better connection.'));
+    xhr.send(form);
+  });
 
-  if (!res.ok || !json.secure_url) {
+  let json: { secure_url?: string; error?: { message?: string } } = {};
+  try {
+    json = JSON.parse(body) as typeof json;
+  } catch {
+    // Cloudinary answers JSON on success and on refusal alike, so anything
+    // else is a proxy or a captive portal rather than Cloudinary at all.
+    throw new Error(`Upload failed (HTTP ${status}).`);
+  }
+
+  if (status < 200 || status >= 300 || !json.secure_url) {
     // Cloudinary's own wording — "Invalid Signature", "File size too large" —
     // is far more actionable than anything inferable here, and without it every
     // cause looked identical from the app.
-    const reason = json.error?.message ?? `Upload failed (HTTP ${res.status})`;
+    const reason = json.error?.message ?? `Upload failed (HTTP ${status})`;
     console.warn('[uploads] cloudinary rejected the image:', reason);
     throw new Error(reason);
   }
